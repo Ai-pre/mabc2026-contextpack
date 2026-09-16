@@ -206,19 +206,35 @@ context-pack Skill의 최종 Handoff Context만 출력한다.
 [UNRESOLVED CONFLICTS], [VERIFY BEFORE USE], [DO NOT ASSUME], [SOURCE MAP] 뿐이다.
 
 출력 규칙:
-- 위 섹션들로만 구성된 Handoff 본문만 출력한다.
+- 아래 8개 섹션을 **항상 모두, 정확한 순서로** 출력한다. 해당 내용이 없어도 섹션을 생략하지 말고 `- None`으로 남긴다.
+- 섹션 제목에 Markdown heading, bold, colon 등 장식을 붙이지 않는다.
 - 파일 생성/수정/저장을 하지 않는다. terminal, file write, write_file 등 어떤 파일 쓰기 도구도 사용하지 않는다.
 - patch/diff/요약/설명/후기/로컬 파일 경로를 출력하지 않는다.
 - Handoff 본문 뒤에는 어떤 문장도 추가하지 않는다.
 - 마지막 [SOURCE MAP] 내용이 끝나면 응답을 즉시 종료한다.
 
-예:
+정확한 출력 예:
 [TASK]
-...
+- ...
+
 [MUST KNOW]
-...
+- ...
+
 [CONSTRAINTS]
-...
+- None
+
+[USEFUL IF SPACE ALLOWS]
+- None
+
+[UNRESOLVED CONFLICTS]
+- None
+
+[VERIFY BEFORE USE]
+- None
+
+[DO NOT ASSUME]
+- ...
+
 [SOURCE MAP]
 - source
 
