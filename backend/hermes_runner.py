@@ -114,16 +114,34 @@ class CliHermesRunner:
             clean_stdout
         )
 
-        # 디버깅용:
-        # Hermes는 성공 종료했지만 완성된 Handoff를 찾지 못했을 때만
-        # 실제 stdout/stderr를 출력한다.
         if not handoff:
-            stdout_tail = clean_stdout[-12000:]
-            stderr_tail = (proc.stderr or "")[-6000:]
-
+            required_sections = [
+                "[TASK]",
+                "[MUST KNOW]",
+                "[CONSTRAINTS]",
+                "[USEFUL IF SPACE ALLOWS]",
+                "[UNRESOLVED CONFLICTS]",
+                "[VERIFY BEFORE USE]",
+                "[DO NOT ASSUME]",
+                "[SOURCE MAP]",
+            ]
+            detected = [
+                section
+                for section in required_sections
+                if re.search(self._section_pattern(section), clean_stdout)
+            ]
+            missing = [
+                section for section in required_sections
+                if section not in detected
+            ]
+            detail = (
+                " Missing sections: " + ", ".join(missing)
+                if missing
+                else " All section headers were detected; output contained invalid runtime/tool trace ordering."
+            )
             raise HermesExecutionError(
-                "Hermes succeeded but Handoff Context "
-                "could not be extracted."
+                "Hermes succeeded but Handoff Context could not be extracted."
+                + detail
             )
 
         # 이 값은 stdout에서 activation을 추측하는 값이 아니라
@@ -185,6 +203,17 @@ class CliHermesRunner:
         return text
 
     @staticmethod
+    def _section_pattern(section: str) -> str:
+        """Accept exact headers plus harmless Markdown/CLI decoration."""
+        return (
+            r"(?m)^\s*[│┃]?\s*"
+            r"(?:#{1,6}\s*)?"
+            r"(?:\*\*)?\s*"
+            + re.escape(section)
+            + r"\s*(?:\*\*)?\s*:?\s*$"
+        )
+
+    @staticmethod
     def _count_mcp_calls(text: str) -> int:
         """
         Hermes CLI에서 관측 가능한 mabc MCP tool event를 센다.
@@ -204,6 +233,8 @@ class CliHermesRunner:
 
         prompt echo / runtime trace / 불완전한 template은 제외하고,
         최종 Handoff 뒤에 붙는 Hermes session 안내는 잘라낸다.
+        Hermes 0.21+가 Markdown heading/bold로 section header를 꾸며도
+        동일한 Handoff contract로 정규화한다.
         """
 
         cleaned = CliHermesRunner._clean_cli_noise(text)
@@ -218,10 +249,14 @@ class CliHermesRunner:
             "[DO NOT ASSUME]",
             "[SOURCE MAP]",
         ]
+        patterns = {
+            section: CliHermesRunner._section_pattern(section)
+            for section in required_sections
+        }
 
         task_matches = list(
             re.finditer(
-                r"(?m)^\[TASK\]\s*$",
+                patterns["[TASK]"],
                 cleaned,
             )
         )
@@ -245,7 +280,7 @@ class CliHermesRunner:
 
             for section in required_sections:
                 match = re.search(
-                    rf"(?m)^{re.escape(section)}\s*$",
+                    patterns[section],
                     candidate,
                 )
 
@@ -264,7 +299,7 @@ class CliHermesRunner:
             # 2. SOURCE MAP 이후는 Handoff가 끝난 뒤 붙는
             #    Hermes CLI commentary/session 영역일 수 있다.
             source_map_match = re.search(
-                r"(?m)^\[SOURCE MAP\]\s*$",
+                patterns["[SOURCE MAP]"],
                 candidate,
             )
 
@@ -328,7 +363,15 @@ class CliHermesRunner:
             ):
                 continue
 
-            # 4. Hermes box border 제거
+            # 4. Header decoration을 고정 Handoff contract로 정규화한다.
+            for section in required_sections:
+                candidate = re.sub(
+                    patterns[section],
+                    section,
+                    candidate,
+                )
+
+            # 5. Hermes box border 제거
             lines = []
 
             for line in candidate.splitlines():
