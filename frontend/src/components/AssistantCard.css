@@ -1,0 +1,240 @@
+/* ─── Assistant Card ──────────────────────────────────────────────────────── */
+
+.assistant-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 16px 18px;
+  background: rgba(10, 16, 30, 0.70);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 18px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+  animation: assistant-in 0.3s ease-out;
+}
+
+@keyframes assistant-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ─── Identity ────────────────────────────────────────────────────────────── */
+
+.assistant-identity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.agent-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+  flex-shrink: 0;
+}
+
+.agent-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.agent-meta {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 99px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.agent-status {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 10px;
+  border-radius: 99px;
+}
+
+.agent-status--loading {
+  color: var(--accent);
+  background: rgba(77, 140, 247, 0.12);
+  border: 1px solid rgba(77, 140, 247, 0.2);
+}
+
+.agent-status--done {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.1);
+  border: 1px solid rgba(74, 222, 128, 0.2);
+}
+
+.agent-status--error {
+  color: var(--danger);
+  background: var(--danger-bg);
+  border: 1px solid rgba(247, 92, 92, 0.2);
+}
+
+/* ─── Content ─────────────────────────────────────────────────────────────── */
+
+.assistant-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ─── Processing state ────────────────────────────────────────────────────── */
+
+.processing-text {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  padding: 10px 12px;
+  background: var(--bg-elev);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-soft);
+}
+
+/* ─── Workflow stages ─────────────────────────────────────────────────────── */
+
+.agent-workflow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.workflow-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+
+.workflow-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workflow-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.workflow-step-num {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.workflow-step-label {
+  white-space: nowrap;
+}
+
+/* ─── Sources line ────────────────────────────────────────────────────────── */
+
+.sources-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  padding-top: 4px;
+}
+
+.dot-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* ─── Result state ────────────────────────────────────────────────────────── */
+
+.result-ready {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.result-ready-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.result-preview {
+  padding: 12px 14px;
+  background: var(--bg-elev);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-soft);
+}
+
+.preview-text {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  margin: 0;
+}
+
+.result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.meta-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+/* ─── Error state ─────────────────────────────────────────────────────────── */
+
+.error-inline {
+  font-size: 0.85rem;
+  color: var(--danger);
+  padding: 10px 12px;
+  background: var(--danger-bg);
+  border: 1px solid rgba(247, 92, 92, 0.2);
+  border-radius: var(--radius-sm);
+}

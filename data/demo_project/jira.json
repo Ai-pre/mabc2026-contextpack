@@ -1,0 +1,117 @@
+{
+  "source": "jira",
+  "project_key": "PAY",
+  "issues": [
+    {
+      "id": "PAY-183",
+      "key": "PAY-183",
+      "type": "Story",
+      "summary": "Partial refund support",
+      "status": "Done",
+      "priority": "High",
+      "created": "2026-09-05",
+      "updated": "2026-09-10",
+      "description": "부분환불 기능을 구현한다.\n\n- 결제 금액의 일부 환불 가능\n- refund_status에 PARTIAL_REFUND 상태 추가\n- 기존 환불 트랜잭션과 idempotency 유지\n- PG API v3 사용 (PAY-176 완료 전제)",
+      "comments": [
+        {
+          "author": "pm-seo",
+          "created": "2026-09-09",
+          "body": "PR #152 merge 완료._PARTIAL_REFUND 상태 추가됨."
+        }
+      ],
+      "labels": ["payment", "refund", "partial-refund"]
+    },
+    {
+      "id": "PAY-176",
+      "key": "PAY-176",
+      "type": "Task",
+      "summary": "PG API v3 migration",
+      "status": "Done",
+      "priority": "High",
+      "created": "2026-08-28",
+      "updated": "2026-09-02",
+      "description": "PG사 결제 API v2 → v3 마이그레이션.\n\n- v2 endpoint deprecated\n- v3 endpoint 사용\n- 기존 결제 트랜잭션 호환 유지",
+      "comments": [
+        {
+          "author": "developer-yuki",
+          "created": "2026-09-02",
+          "body": "PR #148 merge 완료. v3 전환 완료."
+        }
+      ],
+      "labels": ["payment", "pg-api"]
+    },
+    {
+      "id": "PAY-179",
+      "key": "PAY-179",
+      "type": "Epic",
+      "summary": "Refund window change: 7 days → 14 days",
+      "status": "In Progress",
+      "priority": "Medium",
+      "created": "2026-09-01",
+      "updated": "2026-09-11",
+      "description": "환불 가능 기간을 결제 후 7일에서 14일로 변경하는 방안.\n\n현재 논의 중이며 아직 최종 확정되지 않음.",
+      "comments": [
+        {
+          "author": "pm-seo",
+          "created": "2026-09-03",
+          "body": "PO가 검토 중. 아직 확정된 사항 아님."
+        },
+        {
+          "author": "po-jang",
+          "created": "2026-09-10",
+          "body": "기술적으로 가능한지 확인 중. 확정되면 PAY-179 하위 태스크 생성 예정."
+        },
+        {
+          "author": "po-jang",
+          "created": "2026-09-12",
+          "body": "일반결제 환불 가능 기간을 14일로 최종 승인함. 2026-10-01 부터 적용."
+        }
+      ],
+      "labels": ["payment", "refund", "policy-change", "under-discussion"]
+    },
+    {
+      "id": "PAY-181",
+      "key": "PAY-181",
+      "type": "Story",
+      "summary": "Partial refund for specific payment types (정기결제, 해외결제)",
+      "status": "In Progress",
+      "priority": "Medium",
+      "created": "2026-09-08",
+      "updated": "2026-09-11",
+      "description": "특정 결제 유형에 대한 부분환불 예외 정책을 정의한다.\n\n- 정기결제 부분환불: 기존 정책으로 처리 가능 (확인됨)\n- 해외결제 부분환불: 별도 정책 필요 — 아직 정의되지 않음",
+      "comments": [
+        {
+          "author": "dev-lead-hana",
+          "created": "2026-09-10",
+          "body": "해외결제 부분환불은 별도 정책이 필요함. 현재 자료에는 정의가 없으니, 구현 전에 정책팀 확인 필요."
+        }
+      ],
+      "labels": ["payment", "refund", "exception-policy", "overseas-payment"]
+    },
+    {
+      "id": "PAY-184",
+      "key": "PAY-184",
+      "type": "Story",
+      "summary": "Frontend: 체크아웃 UI 리팩토링",
+      "status": "In Progress",
+      "priority": "Low",
+      "created": "2026-09-11",
+      "updated": "2026-09-11",
+      "description": "체크아웃 페이지 UI 리팩토링. 백엔드 API 변경 없음.",
+      "labels": ["frontend", "checkout", "ui"]
+    },
+    {
+      "id": "MKT-42",
+      "key": "MKT-42",
+      "project_key": "MKT",
+      "type": "Task",
+      "summary": "여름 마케팅 캠페인 랜딩 페이지",
+      "status": "Done",
+      "priority": "Medium",
+      "created": "2026-08-15",
+      "updated": "2026-09-01",
+      "description": "9월 마케팅 캠페인용 랜딩 페이지 제작.",
+      "labels": ["marketing", "landing-page"]
+    }
+  ]
+}

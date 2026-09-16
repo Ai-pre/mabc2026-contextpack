@@ -1,0 +1,197 @@
+/* AgentComposer — StockPilot ChatPanel 스타일 참고 하단 composer */
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(20, 26, 35, 0.7);
+  backdrop-filter: blur(12px) saturate(1.1);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.composer-role-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.role-pill {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  height: 42px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.role-pill .role-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--border);
+  flex-shrink: 0;
+}
+
+.role-pill .role-input {
+  flex: 1;
+  height: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 0;
+  min-width: 0;
+}
+
+.role-pill .role-input::placeholder {
+  color: var(--text-dim);
+}
+
+.role-pill--focused {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(77, 140, 247, 0.12);
+}
+
+.role-placeholder {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  pointer-events: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer-task {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.composer-task-input {
+  width: 100%;
+  min-height: 110px;
+  max-height: 240px;
+  padding: 13px 15px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.65;
+  resize: none;
+  outline: none;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.composer-task-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(77, 140, 247, 0.1);
+}
+
+.composer-task-input::placeholder {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.build-btn {
+  flex: 1;
+  height: 42px;
+  padding: 0 24px;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+
+.build-btn:hover:not(:disabled) {
+  background: #5a96f9;
+  box-shadow:
+    0 0 20px rgba(77, 140, 247, 0.3),
+    0 0 40px rgba(77, 140, 247, 0.15);
+}
+
+.build-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.build-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.load-demo-btn {
+  height: 42px;
+  padding: 0 16px;
+  border-radius: var(--radius-md);
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.load-demo-btn:hover:not(:disabled) {
+  border-color: var(--text-dim);
+  color: var(--text);
+}
+
+.load-demo-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.composer-helper {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+  padding-top: 2px;
+}
+
+.composer-helper kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-family: ui-monospace, monospace;
+  color: var(--text-muted);
+  margin: 0 2px;
+}
+
+/* Hidden state (processing 중 composer dimmed) */
+.composer[disabled] {
+  opacity: 0.5;
+  pointer-events: none;
+}

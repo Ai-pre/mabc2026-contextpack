@@ -1,0 +1,8 @@
+# Install into the existing Hermes Python environment.
+fastapi==0.133.1
+uvicorn==0.41.0
+pydantic==2.13.4
+mcp==2.0.0
+python-multipart==0.0.32
+pypdf==6.18.1
+python-docx==1.2.0

@@ -1,0 +1,56 @@
+{
+  "source": "slack",
+  "channels": {
+    "payment-eng": [
+      {
+        "timestamp": "2026-09-02T14:22:00Z",
+        "user": "developer-yuki",
+        "text": "PG API v3 마이그레이션 PR(#148) 리뷰 완료, merge 했습니다. v2 endpoint는 이제 deprecated."
+      },
+      {
+        "timestamp": "2026-09-09T09:15:00Z",
+        "user": "developer-yuki",
+        "text": "PARTIAL_REFUND 상태 추가됐습니다. 부분환불 로직 구현할 때 기존 refund transaction idempotency 유지해야 합니다. PR #152 참고하세요."
+      },
+      {
+        "timestamp": "2026-09-07T11:00:00Z",
+        "user": "pm-seo",
+        "text": "환불 가능 기간 7일 → 14일 변경 논의 중입니다. PO가 검토 중이고 아직 확정된 건 아니에요. PAY-179에서 논의 중입니다."
+      },
+      {
+        "timestamp": "2026-09-10T16:40:00Z",
+        "user": "dev-lead-hana",
+        "text": "특정 결제 유형 중에서 정기결제 부분환불은 기존 정책으로 처리 가능하고, 해외결제 부분환불은 아직 정책이 없습니다. 구현 전에 정책팀 확인 필요해요."
+      },
+      {
+        "timestamp": "2026-09-11T10:00:00Z",
+        "user": "developer-yuki",
+        "text": "부분환불 구현할 때 PG API v3 사용해야 합니다. v2는 deprecated 돼서 더 이상 쓰면 안 됩니다."
+      },
+      {
+        "timestamp": "2026-09-12T15:30:00Z",
+        "user": "legal-minsu",
+        "text": "법무 검토 결과, 일반결제 환불 가능 기간은 기존 7일 유지하기로 최종 결정했습니다. 14일 변경은 무산됐습니다."
+      }
+    ],
+    "general": [
+      {
+        "timestamp": "2026-09-10T13:00:00Z",
+        "user": "designer-minji",
+        "text": "결제 버튼 애니메이션 디자인 리뷰 슬라이드 공유합니다. 투표 부탁드려요."
+      },
+      {
+        "timestamp": "2026-09-11T09:30:00Z",
+        "user": "marketing-jiho",
+        "text": "9/15 마케팅 캠페인 런칭 체크 리스트 공유합니다."
+      }
+    ],
+    "site-reliability": [
+      {
+        "timestamp": "2026-09-08T08:00:00Z",
+        "user": "sre-taeho",
+        "text": "어제 인벤토리 서비스 장애 공유합니다. 결제 서비스와는 무관합니다."
+      }
+    ]
+  }
+}

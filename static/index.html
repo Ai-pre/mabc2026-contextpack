@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContextPack — Right Context for the Next Agent</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="page-wrapper">
+    <header class="header">
+      <div class="header-inner">
+        <div class="brand">
+          <h1 class="brand-title">ContextPack</h1>
+          <p class="brand-subtitle">Right Context for the Next Agent</p>
+        </div>
+        <p class="header-desc">흩어진 업무 정보에서 현재 Role과 Task에 필요한 최신 Context만 골라, 다음 Agent가 바로 사용할 수 있는 Handoff를 생성합니다.</p>
+      </div>
+    </header>
+
+    <main class="layout">
+      <!-- 왼쪽: Task Input -->
+      <section class="panel input-panel">
+        <h2 class="panel-title">Task Input</h2>
+
+        <div class="field">
+          <label for="role" class="field-label">Role</label>
+          <input type="text" id="role" class="field-input" placeholder="예: 3주 만에 프로젝트에 복귀한 백엔드 개발자" autocomplete="off">
+        </div>
+
+        <div class="field">
+          <label for="task" class="field-label">Current Task</label>
+          <textarea id="task" class="field-textarea" rows="5" placeholder="예: 결제 모듈의 부분환불 기능 수정"></textarea>
+        </div>
+
+        <div class="button-row">
+          <button id="buildBtn" class="btn btn-primary">Build Context Pack</button>
+          <button id="demoBtn" class="btn btn-secondary">Load Demo</button>
+        </div>
+
+        <p class="hint">More Context가 아니라, 지금 이 Task에 필요한 <strong>Right Context</strong>를 찾습니다.</p>
+      </section>
+
+      <!-- 오른쪽: Context Pipeline (초기 설명용) -->
+      <section class="panel pipeline-panel" id="pipelinePanel">
+        <h2 class="panel-title">Context Pipeline</h2>
+        <p class="pipeline-subtitle">Your task determines what context matters.</p>
+
+        <div class="pipeline-steps">
+          <div class="pipeline-step">
+            <div class="step-num">01</div>
+            <div class="step-body">
+              <div class="step-label">Understand Task</div>
+              <div class="step-desc">Role + Current Task</div>
+            </div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-num">02</div>
+            <div class="step-body">
+              <div class="step-label">Explore Sources</div>
+              <div class="step-desc">GitHub · Jira · Slack · Notion</div>
+            </div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-num">03</div>
+            <div class="step-body">
+              <div class="step-label">Evaluate Evidence</div>
+              <div class="step-desc">Relevant · Stale · Conflict · Missing</div>
+            </div>
+          </div>
+          <div class="pipeline-step">
+            <div class="step-num">04</div>
+            <div class="step-body">
+              <div class="step-label">Build Handoff</div>
+              <div class="step-desc">Minimum sufficient context for the next agent</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pipeline-sources">
+          <span class="src-badge">GitHub</span>
+          <span class="src-badge">Jira</span>
+          <span class="src-badge">Slack</span>
+          <span class="src-badge">Notion</span>
+        </div>
+
+        <div class="pipeline-philosophy">
+          <span class="phil-left">More Context</span>
+          <span class="phil-arrow">→</span>
+          <span class="phil-right">Right Context</span>
+        </div>
+      </section>
+
+      <!-- Processing 상태 (전체 폭) -->
+      <section class="panel status-panel" id="statusPanel" hidden>
+        <div class="status-header">
+          <h2 class="panel-title">Building Context Pack<span class="dots"></span></h2>
+          <div class="elapsed">
+            <span class="elapsed-label">Elapsed</span>
+            <span class="elapsed-value" id="elapsedTime">00:00</span>
+          </div>
+        </div>
+
+        <p class="status-note">Complex tasks may take a few minutes.</p>
+
+        <div class="stages">
+          <div class="stage">
+            <div class="stage-dot" id="stage1"></div>
+            <div class="stage-text">
+              <div class="stage-label">Understanding Task</div>
+              <div class="stage-desc">Role + Task 파악, Context Requirement 구성</div>
+            </div>
+          </div>
+          <div class="stage">
+            <div class="stage-dot" id="stage2"></div>
+            <div class="stage-text">
+              <div class="stage-label">Exploring Sources</div>
+              <div class="stage-desc">GitHub / Jira / Slack / Notion 탐색 중</div>
+            </div>
+          </div>
+          <div class="stage">
+            <div class="stage-dot" id="stage3"></div>
+            <div class="stage-text">
+              <div class="stage-label">Evaluating Context</div>
+              <div class="stage-desc">STALE / CONFLICT / MISSING / 중복 분류</div>
+            </div>
+          </div>
+          <div class="stage">
+            <div class="stage-dot" id="stage4"></div>
+            <div class="stage-text">
+              <div class="stage-label">Building Handoff</div>
+              <div class="stage-desc">다음 Agent용 Handoff Context 생성</div>
+            </div>
+          </div>
+        </div>
+
+        <p class="stage-note">Agent가 위 단계를 순차적으로 진행하고 있습니다. 실제 처리 상황은 Hermes Agent(Solar Pro 4)가 MCP tool을 선택·호출하며 context-pack Skill을 수행하는 과정입니다.</p>
+      </section>
+
+      <!-- Error -->
+      <section class="panel error-panel" id="errorPanel" hidden>
+        <h2 class="panel-title error-title">Error</h2>
+        <pre id="errorBody" class="error-body"></pre>
+        <div class="error-actions">
+          <button id="errorRetryBtn" class="btn btn-secondary">Try Again</button>
+        </div>
+      </section>
+
+      <!-- Result (전체 폭) -->
+      <section class="panel result-panel" id="resultPanel" hidden>
+        <div class="result-header">
+          <h2 class="panel-title">ContextPack Ready</h2>
+          <div class="result-metrics" id="resultMetrics"></div>
+        </div>
+
+        <div class="quality-signals" id="qualitySignals"></div>
+        <div class="result-body" id="resultBody"></div>
+
+        <div class="result-actions">
+          <button id="copyBtn" class="btn btn-secondary">Copy Handoff</button>
+          <button id="againBtn" class="btn btn-secondary">Run Again</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
