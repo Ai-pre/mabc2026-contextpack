@@ -1,12 +1,9 @@
 ﻿model:
   default: solar-pro4
-  provider: upstage
+  provider: custom
+  base_url: https://api.upstage.ai/v1
   api_key: ${UPSTAGE_API_KEY}
   context_length: 524288
-  max_tokens: 2048
-
-agent:
-  reasoning_effort: low
 
 mcp_servers:
   mabc-sources:
