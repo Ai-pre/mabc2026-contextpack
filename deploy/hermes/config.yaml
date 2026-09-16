@@ -1,0 +1,16 @@
+﻿model:
+  default: solar-pro4
+  provider: custom
+  base_url: https://api.upstage.ai/v1
+  api_key: ${UPSTAGE_API_KEY}
+  context_length: 524288
+
+mcp_servers:
+  mabc-sources:
+    command: python
+    args:
+      - /app/mabc_mcp_server.py
+    enabled: true
+    timeout: 120
+    connect_timeout: 60
+    supports_parallel_tool_calls: false
