@@ -161,13 +161,19 @@ class CliHermesRunner:
             and "context-pack" in cmd
         )
 
+        mcp_tool_calls = self._count_mcp_calls(trace_text)
+
+        if mcp_tool_calls == 0:
+            raise HermesExecutionError(
+                "Hermes produced a Handoff without reading any registered Source. "
+                "ContextPack refuses source-free handoffs; retry the analysis."
+            )
+
         return HermesRunResult(
             duration_sec=round(duration, 2),
             handoff=handoff,
             skill_used=skill_enabled,
-            mcp_tool_calls=self._count_mcp_calls(
-                trace_text
-            ),
+            mcp_tool_calls=mcp_tool_calls,
         )
 
     @staticmethod
