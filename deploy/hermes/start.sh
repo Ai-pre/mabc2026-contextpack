@@ -14,4 +14,16 @@ if [ "${GITHUB_REMOTE_MCP_ENABLED:-0}" = "1" ] && [ -n "${GITHUB_MCP_TOKEN:-}" ]
   echo "ContextPack: official GitHub remote MCP detail fallback enabled"
 fi
 
+if [ -n "${SLACK_BOT_TOKEN:-}" ]; then
+  echo "ContextPack: live Slack connector enabled"
+else
+  echo "ContextPack: SLACK_BOT_TOKEN not set; live Slack connector disabled"
+fi
+
+if [ -n "${NOTION_API_KEY:-}" ]; then
+  echo "ContextPack: live Notion connector enabled"
+else
+  echo "ContextPack: NOTION_API_KEY not set; live Notion connector disabled"
+fi
+
 exec python -m uvicorn backend.main:app --host 0.0.0.0 --port "${PORT:-8080}"
