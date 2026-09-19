@@ -64,7 +64,7 @@ class CliHermesRunner:
             "--skills",
             "context-pack",
             "--max-turns",
-            "5",
+            "8",
             "-q",
             prompt,
         ]
