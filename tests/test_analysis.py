@@ -140,8 +140,7 @@ class AnalysisTests(unittest.TestCase):
             result = api.runner.run("Test prompt", workspace_id=scope)
         args = launch.call_args.args[0]
         self.assertEqual(args[1:5], ["chat", "--oneshot", "--skills", "context-pack"])
-        self.assertIn("--toolsets", args)
-        self.assertEqual(args[args.index("--toolsets") + 1], "skills,mcp-mabc-sources")
+        self.assertNotIn("--toolsets", args)
         self.assertEqual(args[args.index("--max-turns") + 1], "5")
         self.assertEqual(launch.call_args.kwargs["env"]["CONTEXTPACK_WORKSPACE_ID"], scope)
         self.assertEqual(os.environ.get("CONTEXTPACK_WORKSPACE_ID"), previous)
