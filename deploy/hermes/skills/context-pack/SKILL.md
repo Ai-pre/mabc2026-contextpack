@@ -153,9 +153,11 @@ Handoff Context에서는 다음처럼 분리해 전달한다:
 - final / authoritative: "최종 결정", "확정", "승인", "적용 결정", "취소", "정책 결정"
 
 동일한 decision topic에서 tentative claim과 final claim이 함께 있고, final claim이 tentative 안을 명시적으로 확정·대체·취소하는 관계라면:
-- final claim을 현재 상태로 `MUST_INCLUDE`에 둘 수 있다.
+- final claim을 현재 상태로 `MUST_INCLUDE`에 둔다.
 - tentative claim은 필요할 때만 과거 논의/배경으로 `USEFUL`에 남기거나 제외한다.
 - 둘을 `UNRESOLVED CONFLICTS`로 올리지 않는다.
+- **Finality 보존 규칙:** final/authoritative claim 이후에 명시적인 reopening, 상충하는 확정 근거, 또는 stale 근거가 없다면 해당 결정을 `VERIFY BEFORE USE`에 중복시키지 않는다. "실제 상황은 바뀔 수 있음", "추가 확인이 안전함" 같은 일반적 가능성은 VERIFY 근거가 아니다.
+- final claim에 딸린 세부사항(정확한 시각, 담당자, 대상 환경 등)이 source에 없다면 final claim 자체를 약화시키지 않는다. 확인되지 않은 세부사항만 `DO NOT ASSUME`으로 분리한다.
 - 단, final 이후 다시 "재논의/재검토/결정 보류/결정 번복" 같은 명시적 reopening signal이 있으면 현재 상태가 다시 불확실할 수 있으므로 VERIFY 또는 CONFLICT 여부를 재평가한다.
 
 - 한쪽 claim을 `[MUST KNOW]`, `[CONSTRAINTS]`, `[USEFUL IF SPACE ALLOWS]`에서 확정 사실처럼 다시 쓰지 않는다.
