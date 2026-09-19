@@ -106,11 +106,12 @@ notion_search   / notion_get
   - TXT
   - MD
   - JSON
-- **GitHub / Jira / Slack / Notion**: demo용 mock connector
-  - 실제 서비스와 동일한 Tool interface로 구성
+- **Uploaded documents**: 자체 MCP server의 `document_search/document_get`으로 실제 동작
+- **GitHub**: 공식 GitHub Remote MCP Server를 통한 live read-only repository 연결 지원
+- **Jira / Slack / Notion**: 현재 demo용 mock connector
   - Agent가 Task에 따라 필요한 Source/Tool을 선택하는 흐름 검증
 
-향후 mock connector 내부를 실제 SaaS API 호출로 교체하면 상위 Hermes / Solar / ContextPack 구조를 유지한 채 확장할 수 있습니다.
+GitHub 연결은 Workspace에 `owner/repo`를 Source로 등록하고, Hermes가 공식 GitHub MCP의 read-only tools를 사용하도록 구성됩니다. Jira/Slack/Notion은 동일한 Connector 패턴으로 확장할 예정입니다.
 
 ## Demo Scenario
 
@@ -179,7 +180,17 @@ npm --prefix frontend install
 npm --prefix frontend run build
 ```
 
-### 3. Run FastAPI
+### 3. Optional: enable live GitHub MCP
+
+Create a fine-grained GitHub token with read access only to the repositories ContextPack should inspect, then expose it to the server process:
+
+```bash
+export GITHUB_MCP_TOKEN=your_token_here
+```
+
+The Docker entrypoint enables the official GitHub Remote MCP server only when this variable is present. The MCP connection is configured as read-only and uses the `repos,pull_requests` toolsets.
+
+### 4. Run FastAPI
 
 ```bash
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
@@ -214,7 +225,8 @@ http://127.0.0.1:8000
 Current MVP limitations:
 
 - lexical retrieval only
-- GitHub/Jira/Slack/Notion live accounts not yet connected
+- GitHub live MCP uses a server-side token in the current prototype; per-user OAuth/GitHub App authorization is not implemented yet
+- Jira/Slack/Notion live accounts not yet connected
 - local single-process workspace storage
 - no OCR for image-only PDFs
 - no enterprise authentication / permission model
