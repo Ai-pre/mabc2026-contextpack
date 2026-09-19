@@ -79,25 +79,35 @@ class WorkspaceApiTests(unittest.TestCase):
 
     def test_connect_and_remove_github_source(self):
         workspace_id = self.create()
-        response = self.client.post(
-            f"/workspaces/{workspace_id}/connectors/github",
-            json={"repository": "https://github.com/Ai-pre/mabc2026-contextpack"},
-        )
-        self.assertEqual(response.status_code, 201, response.text)
-        source = response.json()["source"]
-        self.assertEqual(source["source_type"], "connector")
-        self.assertEqual(source["connector"], "github")
-        self.assertEqual(source["repository"], "Ai-pre/mabc2026-contextpack")
+        with patch.dict("os.environ", {"GITHUB_MCP_TOKEN": "test-token"}):
+            response = self.client.post(
+                f"/workspaces/{workspace_id}/connectors/github",
+                json={"repository": "https://github.com/Ai-pre/mabc2026-contextpack"},
+            )
+            self.assertEqual(response.status_code, 201, response.text)
+            source = response.json()["source"]
+            self.assertEqual(source["source_type"], "connector")
+            self.assertEqual(source["connector"], "github")
+            self.assertEqual(source["repository"], "Ai-pre/mabc2026-contextpack")
 
-        duplicate = self.client.post(
-            f"/workspaces/{workspace_id}/connectors/github",
-            json={"repository": "Ai-pre/mabc2026-contextpack"},
-        )
-        self.assertEqual(duplicate.status_code, 400)
+            duplicate = self.client.post(
+                f"/workspaces/{workspace_id}/connectors/github",
+                json={"repository": "Ai-pre/mabc2026-contextpack"},
+            )
+            self.assertEqual(duplicate.status_code, 400)
 
         response = self.client.delete(f"/workspaces/{workspace_id}/sources/{source['id']}")
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(self.store.list_sources(workspace_id), [])
+
+    def test_github_connector_requires_server_credentials(self):
+        workspace_id = self.create()
+        with patch.dict("os.environ", {}, clear=True):
+            response = self.client.post(
+                f"/workspaces/{workspace_id}/connectors/github",
+                json={"repository": "Ai-pre/mabc2026-contextpack"},
+            )
+        self.assertEqual(response.status_code, 503)
 
     def test_invalid_github_repository_is_rejected(self):
         workspace_id = self.create()
