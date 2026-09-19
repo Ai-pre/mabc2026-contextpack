@@ -319,6 +319,11 @@ async def analyze(req: Request):
             runner.run,
             prompt,
             workspace_id=workspace_id,
+            github_enabled=any(
+                source.get("source_type") == "connector"
+                and source.get("connector") == "github"
+                for source in workspace["sources"]
+            ),
         )
 
     except HermesTimeoutError as exc:
