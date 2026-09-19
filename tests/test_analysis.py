@@ -28,7 +28,8 @@ class AnalysisTests(unittest.TestCase):
         saved = json.loads((ROOT / "response.json").read_text(encoding="utf-8-sig"))
         self.result = SimpleNamespace(duration_sec=saved["duration_sec"], handoff=saved["handoff"],
                                       skill_used=saved["trace"]["skill_used"],
-                                      mcp_tool_calls=saved["trace"]["mcp_tool_calls"])
+                                      mcp_tool_calls=saved["trace"]["mcp_tool_calls"],
+                                      mcp_tools=saved["trace"].get("mcp_tools", []))
 
     def tearDown(self):
         self.client.close()
@@ -43,7 +44,11 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(data["workspace_id"], "demo")
         self.assertEqual(data["handoff"], self.result.handoff)
         self.assertEqual(data["duration_sec"], self.result.duration_sec)
-        self.assertEqual(data["trace"], {"skill_used": self.result.skill_used, "mcp_tool_calls": self.result.mcp_tool_calls})
+        self.assertEqual(data["trace"], {
+            "skill_used": self.result.skill_used,
+            "mcp_tool_calls": self.result.mcp_tool_calls,
+            "mcp_tools": self.result.mcp_tools,
+        })
         self.assertEqual(run.call_args.kwargs, {"workspace_id": "demo", "github_enabled": False})
         prompt = run.call_args.args[0]
         self.assertIn("demo_context_retrieve", prompt)
@@ -103,6 +108,22 @@ class AnalysisTests(unittest.TestCase):
                 response = self.client.post("/analyze", json={"role": "r", "task": "t"})
                 self.assertEqual(response.status_code, status)
                 self.assertEqual(response.json()["detail"], str(error))
+
+    def test_mcp_tool_trace_extracts_exact_tool_names(self):
+        trace = """⚡ mcp__mabc_sources__document_retrieve
+some output
+⚡ mcp__github_live__get_file_contents
+⚡ mcp__mabc_sources__document_get
+"""
+        self.assertEqual(
+            CliHermesRunner._extract_mcp_tools(trace),
+            [
+                "mcp__mabc_sources__document_retrieve",
+                "mcp__github_live__get_file_contents",
+                "mcp__mabc_sources__document_get",
+            ],
+        )
+        self.assertEqual(CliHermesRunner._count_mcp_calls(trace), 3)
 
     def test_handoff_parser_allows_mcp_tool_name_in_source_map(self):
         stdout = """[TASK]
