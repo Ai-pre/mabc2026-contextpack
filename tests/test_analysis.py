@@ -140,6 +140,9 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("논의 중/검토 중/제안/초안/예정/후보", prompt)
         self.assertIn("최종 결정/확정/승인/적용 결정/취소", prompt)
         self.assertIn("둘은 CONFLICT가 아니다", prompt)
+        self.assertIn("Finality 보존", prompt)
+        self.assertIn("일반적인 가능성만으로 그 결정을 VERIFY BEFORE USE에 다시 넣지 않는다", prompt)
+        self.assertIn("확인되지 않은 세부사항만 DO NOT ASSUME", prompt)
         self.assertIn("reopening signal", prompt)
 
     def test_mcp_tool_trace_prefers_full_identifier_from_source_map(self):
