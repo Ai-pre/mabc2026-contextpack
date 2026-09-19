@@ -151,6 +151,7 @@ class AnalyzeRequest(BaseModel):
 class TraceResponse(BaseModel):
     skill_used: bool
     mcp_tool_calls: int
+    mcp_tools: list[str] = []
 
 
 class AnalyzeResponse(BaseModel):
@@ -401,6 +402,7 @@ async def analyze(req: Request):
         "trace": {
             "skill_used": result.skill_used,
             "mcp_tool_calls": result.mcp_tool_calls,
+            "mcp_tools": result.mcp_tools,
         },
     }
 
