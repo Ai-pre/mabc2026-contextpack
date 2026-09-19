@@ -119,6 +119,82 @@ class WorkspaceApiTests(unittest.TestCase):
                 )
                 self.assertEqual(response.status_code, 400)
 
+    def test_connect_and_remove_slack_source(self):
+        workspace_id = self.create()
+        with patch.dict("os.environ", {"SLACK_BOT_TOKEN": "xoxb-test"}):
+            response = self.client.post(
+                f"/workspaces/{workspace_id}/connectors/slack",
+                json={"channel": "https://example.slack.com/archives/C012ABCDEF"},
+            )
+            self.assertEqual(response.status_code, 201, response.text)
+            source = response.json()["source"]
+            self.assertEqual(source["connector"], "slack")
+            self.assertEqual(source["channel"], "C012ABCDEF")
+
+            duplicate = self.client.post(
+                f"/workspaces/{workspace_id}/connectors/slack",
+                json={"channel": "C012ABCDEF"},
+            )
+            self.assertEqual(duplicate.status_code, 400)
+
+        response = self.client.delete(f"/workspaces/{workspace_id}/sources/{source['id']}")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.store.list_sources(workspace_id), [])
+
+    def test_slack_connector_requires_credentials_and_valid_channel(self):
+        workspace_id = self.create()
+        with patch.dict("os.environ", {}, clear=True):
+            response = self.client.post(
+                f"/workspaces/{workspace_id}/connectors/slack",
+                json={"channel": "C012ABCDEF"},
+            )
+        self.assertEqual(response.status_code, 503)
+        with patch.dict("os.environ", {"SLACK_BOT_TOKEN": "xoxb-test"}):
+            response = self.client.post(
+                f"/workspaces/{workspace_id}/connectors/slack",
+                json={"channel": "not-a-channel"},
+            )
+        self.assertEqual(response.status_code, 400)
+
+    def test_connect_and_remove_notion_source(self):
+        workspace_id = self.create()
+        page_id = "12345678-1234-1234-1234-123456789abc"
+        with patch.dict("os.environ", {"NOTION_API_KEY": "ntn_test"}):
+            response = self.client.post(
+                f"/workspaces/{workspace_id}/connectors/notion",
+                json={"page": f"https://www.notion.so/ContextPack-{page_id.replace('-', '')}"},
+            )
+            self.assertEqual(response.status_code, 201, response.text)
+            source = response.json()["source"]
+            self.assertEqual(source["connector"], "notion")
+            self.assertEqual(source["page_id"], page_id)
+
+            duplicate = self.client.post(
+                f"/workspaces/{workspace_id}/connectors/notion",
+                json={"page": page_id},
+            )
+            self.assertEqual(duplicate.status_code, 400)
+
+        response = self.client.delete(f"/workspaces/{workspace_id}/sources/{source['id']}")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.store.list_sources(workspace_id), [])
+
+    def test_notion_connector_requires_credentials_and_valid_page(self):
+        workspace_id = self.create()
+        page_id = "12345678-1234-1234-1234-123456789abc"
+        with patch.dict("os.environ", {}, clear=True):
+            response = self.client.post(
+                f"/workspaces/{workspace_id}/connectors/notion",
+                json={"page": page_id},
+            )
+        self.assertEqual(response.status_code, 503)
+        with patch.dict("os.environ", {"NOTION_API_KEY": "ntn_test"}):
+            response = self.client.post(
+                f"/workspaces/{workspace_id}/connectors/notion",
+                json={"page": "https://www.notion.so/no-page-id-here"},
+            )
+        self.assertEqual(response.status_code, 400)
+
     def test_rejected_upload_does_not_register_source(self):
         workspace_id = self.create()
         for filename, raw, status in (("empty.txt", b"", 400), ("bad.exe", b"test", 415),
