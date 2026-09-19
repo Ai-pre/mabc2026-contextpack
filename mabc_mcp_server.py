@@ -363,6 +363,55 @@ def document_search(workspace_id: str, query: str, limit: int = 10, offset: int 
 
 
 @server.tool()
+def document_retrieve(
+    workspace_id: str,
+    query: str,
+    top_k: int = 3,
+    max_chars_per_doc: int = 3000,
+) -> str:
+    """Retrieve ranked document evidence in one MCP call.
+
+    This is the fast path for ContextPack. It combines lexical search and bounded
+    document reads so the agent does not need a separate search -> model -> get
+    round trip for ordinary uploaded-document tasks.
+
+    Use document_search/document_get only when this result is insufficient or a
+    longer continuation is explicitly required.
+    """
+    _require_workspace(workspace_id)
+    _integer(top_k, "top_k", 1, 5)
+    _integer(max_chars_per_doc, "max_chars_per_doc", 500, 6000)
+
+    searched = json.loads(document_search(workspace_id, query, limit=top_k, offset=0))
+    evidence = []
+
+    for result in searched["results"]:
+        fetched = json.loads(document_get(
+            workspace_id,
+            result["document_id"],
+            offset=result["offset"],
+            max_chars=max_chars_per_doc,
+        ))
+        evidence.append({
+            "document_id": result["document_id"],
+            "title": result["title"],
+            "timestamp": result.get("timestamp"),
+            "score": result["score"],
+            "offset": fetched["offset"],
+            "body": fetched["body"],
+            "next_offset": fetched["next_offset"],
+            "truncated": fetched["truncated"],
+        })
+
+    return json.dumps({
+        "workspace_id": workspace_id,
+        "query": query,
+        "results": evidence,
+        "total_matches": searched["total_matches"],
+    }, ensure_ascii=False, indent=2)
+
+
+@server.tool()
 def document_get(workspace_id: str, document_id: str, offset: int = 0, max_chars: int = 12000) -> str:
     """Read one registered uploaded document in the current analysis workspace.
 
