@@ -77,6 +77,38 @@ class WorkspaceApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(self.store.list_sources(workspace_id), [])
 
+    def test_connect_and_remove_github_source(self):
+        workspace_id = self.create()
+        response = self.client.post(
+            f"/workspaces/{workspace_id}/connectors/github",
+            json={"repository": "https://github.com/Ai-pre/mabc2026-contextpack"},
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        source = response.json()["source"]
+        self.assertEqual(source["source_type"], "connector")
+        self.assertEqual(source["connector"], "github")
+        self.assertEqual(source["repository"], "Ai-pre/mabc2026-contextpack")
+
+        duplicate = self.client.post(
+            f"/workspaces/{workspace_id}/connectors/github",
+            json={"repository": "Ai-pre/mabc2026-contextpack"},
+        )
+        self.assertEqual(duplicate.status_code, 400)
+
+        response = self.client.delete(f"/workspaces/{workspace_id}/sources/{source['id']}")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.store.list_sources(workspace_id), [])
+
+    def test_invalid_github_repository_is_rejected(self):
+        workspace_id = self.create()
+        for value in ("not-a-repo", "owner/repo/extra", "https://example.com/owner/repo"):
+            with self.subTest(value=value):
+                response = self.client.post(
+                    f"/workspaces/{workspace_id}/connectors/github",
+                    json={"repository": value},
+                )
+                self.assertEqual(response.status_code, 400)
+
     def test_rejected_upload_does_not_register_source(self):
         workspace_id = self.create()
         for filename, raw, status in (("empty.txt", b"", 400), ("bad.exe", b"test", 415),
