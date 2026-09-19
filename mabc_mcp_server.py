@@ -193,6 +193,7 @@ def github_retrieve(
     base = f"/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}"
     cache_key = (workspace_id, repository.casefold())
     snapshot = _GITHUB_LIVE_CACHE.get(cache_key)
+    cache_reused = snapshot is not None
 
     if snapshot is None:
         metadata = _github_api(base)
@@ -367,7 +368,7 @@ def github_retrieve(
         "relevant_recent_pull_requests": compact_pulls,
         "tree_summary": tree_summary,
         "readme_preview": readme,
-        "cache_reused": cache_key in _GITHUB_LIVE_CACHE,
+        "cache_reused": cache_reused,
     }, ensure_ascii=False, separators=(",", ":"))
 
 
