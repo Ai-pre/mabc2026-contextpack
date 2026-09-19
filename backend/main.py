@@ -291,6 +291,9 @@ def build_agent_prompt(req, workspace=None):
 2. **CONFLICT (서로 충돌하는 확정 정보)**
    - 서로 다른 source에 같은 사실에 대해 다른 내용이 **둘 다 확정 표현**으로 적혀 있으면
      하나를 임의로 선택하지 말고 UNRESOLVED CONFLICT로 남긴다.
+   - 충돌한 fact의 어느 한쪽 값도 MUST KNOW/CONSTRAINTS에 확정 사실로 쓰지 않는다.
+     다른 섹션에서는 "충돌이 있으므로 확인 전 확정하지 말 것"만 전달할 수 있다.
+   - 더 늦은 날짜만으로 승자를 정하지 않는다. 명시적인 권위/승인 우선순위 근거가 없으면 unresolved 상태를 유지한다.
    - "검토 중", "논의 중"처럼 확정되지 않은 내용은 확정 사실과 구분한다(정보 세탁 금지).
 
 3. **MISSING (현재 자료에 없는 정보)**
@@ -312,6 +315,8 @@ context-pack Skill의 최종 Handoff Context만 출력한다.
 - 파일 생성/수정/저장을 하지 않는다. terminal, file write, write_file 등 어떤 파일 쓰기 도구도 사용하지 않는다.
 - patch/diff/요약/설명/후기/로컬 파일 경로를 출력하지 않는다.
 - Handoff 본문 뒤에는 어떤 문장도 추가하지 않는다.
+- 동일 내용을 여러 섹션에 장문으로 반복하지 않는다. 각 항목은 가능한 한 1~2문장으로 압축한다.
+- UNRESOLVED CONFLICTS에 들어간 fact의 한쪽 값을 MUST KNOW/CONSTRAINTS에 확정 사실로 중복 기재하지 않는다.
 - 마지막 [SOURCE MAP] 내용이 끝나면 응답을 즉시 종료한다.
 
 정확한 출력 예:
