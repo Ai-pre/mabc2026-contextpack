@@ -45,6 +45,9 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(data["duration_sec"], self.result.duration_sec)
         self.assertEqual(data["trace"], {"skill_used": self.result.skill_used, "mcp_tool_calls": self.result.mcp_tool_calls})
         self.assertEqual(run.call_args.kwargs, {"workspace_id": "demo", "github_enabled": False})
+        prompt = run.call_args.args[0]
+        self.assertIn("demo_context_retrieve", prompt)
+        self.assertIn("충돌한 fact의 어느 한쪽 값도 MUST KNOW/CONSTRAINTS에 확정 사실로 쓰지 않는다", prompt)
 
     def test_uploaded_workspace_passes_scope_without_raw_documents(self):
         workspace_id = self.store.create_workspace("Upload test")["workspace_id"]
