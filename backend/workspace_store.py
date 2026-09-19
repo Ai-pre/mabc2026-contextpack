@@ -197,6 +197,49 @@ class WorkspaceStore:
         return self.get_workspace(workspace_id)["sources"]
 
     @staticmethod
+    def _github_repository(value: str) -> str:
+        if not isinstance(value, str) or "\x00" in value:
+            raise WorkspaceValidationError("GitHub repository must be text.")
+        value = value.strip()
+        for prefix in ("https://github.com/", "http://github.com/", "github.com/"):
+            if value.lower().startswith(prefix):
+                value = value[len(prefix):]
+                break
+        value = value.strip().strip("/")
+        if value.endswith(".git"):
+            value = value[:-4]
+        parts = value.split("/")
+        if len(parts) != 2 or any(
+            not part or len(part) > 100 or not re.fullmatch(r"[A-Za-z0-9_.-]+", part)
+            for part in parts
+        ):
+            raise WorkspaceValidationError("GitHub repository must be in owner/repo form.")
+        return f"{parts[0]}/{parts[1]}"
+
+    def add_github_source(self, workspace_id: str, repository: str) -> dict:
+        with self._lock:
+            manifest = self.get_workspace(workspace_id)
+            if manifest["is_demo"]:
+                raise WorkspaceValidationError("Live GitHub connections are not added to the demo workspace.")
+            repository = self._github_repository(repository)
+            for existing in manifest["sources"]:
+                if existing.get("source_type") == "connector" and existing.get("connector") == "github" \
+                        and existing.get("repository", "").casefold() == repository.casefold():
+                    raise WorkspaceValidationError("This GitHub repository is already connected.")
+            source = {
+                "id": f"src_{uuid4().hex}",
+                "source_type": "connector",
+                "connector": "github",
+                "title": f"GitHub · {repository}",
+                "repository": repository,
+                "created_at": _now(),
+            }
+            manifest["sources"].append(source)
+            manifest["updated_at"] = source["created_at"]
+            self._write_manifest(manifest)
+            return source
+
+    @staticmethod
     def _filename(filename: str) -> str:
         if not isinstance(filename, str) or any(ord(char) < 32 for char in filename):
             raise WorkspaceValidationError("Invalid source filename.")
@@ -304,19 +347,26 @@ class WorkspaceStore:
         with self._lock:
             manifest = self.get_workspace(workspace_id)
             source = self._registered_source(manifest, source_id)
-            if source.get("source_type") != "upload":
+            if source.get("source_type") == "demo":
                 raise WorkspaceValidationError("Demo fixture sources cannot be removed.")
             if not isinstance(source_id, str) or not _SOURCE_ID.fullmatch(source_id):
                 raise WorkspaceValidationError("Invalid source ID.")
+
+            manifest["sources"] = [item for item in manifest["sources"] if item.get("id") != source_id]
+            manifest["updated_at"] = _now()
+            self._write_manifest(manifest)
+
+            if source.get("source_type") == "connector":
+                return source
+            if source.get("source_type") != "upload":
+                raise WorkspaceValidationError("Unsupported source type.")
+
             filename = self._filename(source.get("original_filename"))
             directory = self._workspace_path(workspace_id)
             originals = self._child_path(directory, "sources")
             documents = self._child_path(directory, "normalized")
             paths = [self._child_path(originals, source_id + Path(filename).suffix.lower()),
                      self._child_path(documents, source_id + ".json")]
-            manifest["sources"] = [item for item in manifest["sources"] if item.get("id") != source_id]
-            manifest["updated_at"] = _now()
-            self._write_manifest(manifest)
             # Remove registration first: even a failed cleanup cannot make a deleted source searchable.
             for path in paths:
                 try:
