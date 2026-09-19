@@ -113,6 +113,28 @@ notion_search   / notion_get
 
 GitHub 연결은 Workspace에 `owner/repo`를 Source로 등록하고, Hermes가 공식 GitHub MCP의 read-only tools를 사용하도록 구성됩니다. Jira/Slack/Notion은 동일한 Connector 패턴으로 확장할 예정입니다.
 
+## Real Workspace Path
+
+The production-oriented path is source-driven rather than demo-specific.
+
+```text
+Workspace
+├── Uploaded documents → mabc-sources / document_retrieve
+└── Connected GitHub   → official GitHub Remote MCP (read-only)
+                         ↓
+                      Hermes
+                         ↓
+                    Solar Pro 4
+                         ↓
+                  ContextPack Skill
+                         ↓
+                  Handoff Context
+```
+
+A real workspace only exposes evidence from sources registered to that workspace. Uploaded documents use the local MCP retriever; connected GitHub repositories use the live GitHub MCP connection. Jira, Slack and Notion demo fixtures remain isolated to the demo workspace and are not treated as live integrations.
+
+Completed analyses return an execution trace containing the exact MCP tool names that were used. The UI shows this trace so live-connector E2E runs can be verified without inferring tool usage from the generated Handoff.
+
 ## Demo Scenario
 
 대표 데모는 **3주 만에 프로젝트에 복귀한 Backend Developer** 시나리오입니다.
