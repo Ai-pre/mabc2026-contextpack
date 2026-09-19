@@ -12,6 +12,7 @@ mcp_servers:
       - /app/mabc_mcp_server.py
     env:
       CONTEXTPACK_WORKSPACE_ID: "${CONTEXTPACK_WORKSPACE_ID}"
+      GITHUB_MCP_TOKEN: "${GITHUB_MCP_TOKEN}"
     enabled: true
     timeout: 120
     connect_timeout: 60
