@@ -87,6 +87,23 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("aggregate", prompt)
         self.assertIn("다른 repository를 근거로 사용하지 않는다", prompt)
 
+    def test_slack_only_workspace_forces_one_retrieve_then_stop(self):
+        workspace_id = self.store.create_workspace("Slack only")["workspace_id"]
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+        with patch.object(api.runner, "run", return_value=self.result) as run:
+            response = self.client.post("/analyze", json={
+                "workspace_id": workspace_id,
+                "role": "Backend Developer",
+                "task": "Summarize recent project decisions",
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        prompt = run.call_args.args[0]
+        self.assertIn("이 Workspace는 Slack-only다", prompt)
+        self.assertIn("slack_retrieve를 필요한 channel당 정확히 1회", prompt)
+        self.assertIn("다른 MCP tool을 탐색하거나 재호출하지 않는다", prompt)
+        self.assertNotIn("demo_context_retrieve", prompt)
+        self.assertNotIn("slack_search/get", prompt)
+
     def test_connected_slack_and_notion_sources_are_scoped_in_agent_prompt(self):
         workspace_id = self.store.create_workspace("Connector test")["workspace_id"]
         self.store.add_slack_source(workspace_id, "C012ABCDEF")
