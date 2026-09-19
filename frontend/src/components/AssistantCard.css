@@ -238,3 +238,20 @@
   border: 1px solid rgba(247, 92, 92, 0.2);
   border-radius: var(--radius-sm);
 }
+
+
+.result-tools {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.result-tools-label {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text-muted);
+}
