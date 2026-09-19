@@ -4,10 +4,14 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import pathlib
 import re
+import urllib.error
+import urllib.parse
+import urllib.request
 from typing import Any
 
 from mcp.server import MCPServer
@@ -88,6 +92,217 @@ server = MCPServer("mabc-sources", "1.0.0",
 def _tool(name: str, description: str, fn):
     """서버에 tool 등록."""
     server.add_tool(fn, name=name, description=description)
+
+
+# --- Live GitHub connector helpers ---
+
+def _github_token() -> str:
+    token = os.environ.get("GITHUB_MCP_TOKEN", "").strip()
+    if not token or token.startswith("${"):
+        raise WorkspaceValidationError("Live GitHub is not configured on this server.")
+    return token
+
+
+def _github_api(path: str) -> Any:
+    request = urllib.request.Request(
+        "https://api.github.com" + path,
+        headers={
+            "Authorization": f"Bearer {_github_token()}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "ContextPack/0.1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("message", "")
+        except Exception:
+            detail = ""
+        message = f"GitHub API returned HTTP {exc.code}"
+        if detail:
+            message += f": {detail}"
+        raise WorkspaceValidationError(message) from exc
+    except (urllib.error.URLError, TimeoutError, ValueError, UnicodeError) as exc:
+        raise WorkspaceValidationError(f"GitHub API request failed: {exc}") from exc
+
+
+def _registered_github_repositories(workspace_id: str) -> list[str]:
+    workspace = _STORE.get_workspace(workspace_id)
+    return [
+        source["repository"]
+        for source in workspace["sources"]
+        if source.get("source_type") == "connector"
+        and source.get("connector") == "github"
+        and source.get("repository")
+    ]
+
+
+def _query_terms(query: str) -> list[str]:
+    return list(dict.fromkeys(
+        term for term in re.findall(r"[A-Za-z0-9_.-]+", query.casefold())
+        if len(term) >= 2
+    ))
+
+
+def _text_score(value: str, terms: list[str]) -> int:
+    folded = value.casefold()
+    return sum(1 for term in terms if term in folded)
+
+
+@server.tool()
+def github_retrieve(
+    workspace_id: str,
+    query: str,
+    repository: str = "",
+    recent_limit: int = 8,
+) -> str:
+    """Retrieve compact live GitHub evidence in one MCP call.
+
+    This is the preferred fast path for connected GitHub repositories. It
+    aggregates repository metadata, recent commits, recent pull requests,
+    changed files for the most relevant PRs, README context and a compact tree
+    summary. Use granular github-live tools only when one exact detail is still
+    missing after this result.
+    """
+    _require_workspace(workspace_id)
+    if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
+        raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
+    _integer(recent_limit, "recent_limit", 1, 15)
+
+    repositories = _registered_github_repositories(workspace_id)
+    if not repositories:
+        raise WorkspaceValidationError("No GitHub repository is connected to this workspace.")
+
+    if repository:
+        normalized = WorkspaceStore._github_repository(repository)
+        match = next((item for item in repositories if item.casefold() == normalized.casefold()), None)
+        if not match:
+            raise WorkspaceValidationError("Requested GitHub repository is not connected to this workspace.")
+        repository = match
+    elif len(repositories) == 1:
+        repository = repositories[0]
+    else:
+        raise WorkspaceValidationError("repository is required when multiple GitHub repositories are connected.")
+
+    owner, repo = repository.split("/", 1)
+    base = f"/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}"
+    metadata = _github_api(base)
+    default_branch = metadata.get("default_branch") or "main"
+
+    commits = _github_api(
+        f"{base}/commits?sha={urllib.parse.quote(default_branch)}&per_page={recent_limit}"
+    )
+    pulls = _github_api(
+        f"{base}/pulls?state=all&sort=updated&direction=desc&per_page={recent_limit}"
+    )
+
+    terms = _query_terms(query)
+
+    compact_commits = []
+    for item in commits if isinstance(commits, list) else []:
+        commit = item.get("commit", {}) or {}
+        message = (commit.get("message") or "").split("\n", 1)[0]
+        compact_commits.append({
+            "sha": (item.get("sha") or "")[:12],
+            "date": ((commit.get("author") or {}).get("date")),
+            "message": message,
+            "_score": _text_score(message, terms),
+        })
+    compact_commits.sort(key=lambda item: (-item["_score"], item.get("date") or ""), reverse=False)
+    compact_commits = [
+        {k: v for k, v in item.items() if k != "_score"}
+        for item in compact_commits[:recent_limit]
+    ]
+
+    compact_pulls = []
+    for item in pulls if isinstance(pulls, list) else []:
+        title = item.get("title") or ""
+        body = item.get("body") or ""
+        combined = f"{title}\n{body}"
+        compact_pulls.append({
+            "number": item.get("number"),
+            "state": item.get("state"),
+            "draft": bool(item.get("draft")),
+            "updated_at": item.get("updated_at"),
+            "merged_at": item.get("merged_at"),
+            "title": title,
+            "body_preview": body[:700] if body else "",
+            "_score": _text_score(combined, terms),
+        })
+    compact_pulls.sort(
+        key=lambda item: (item["_score"], item.get("updated_at") or ""),
+        reverse=True,
+    )
+
+    relevant_prs = compact_pulls[:min(3, len(compact_pulls))]
+    for pr in relevant_prs[:2]:
+        number = pr.get("number")
+        if not isinstance(number, int):
+            continue
+        files = _github_api(f"{base}/pulls/{number}/files?per_page=50")
+        pr["files"] = [
+            {
+                "filename": file.get("filename"),
+                "status": file.get("status"),
+                "additions": file.get("additions"),
+                "deletions": file.get("deletions"),
+            }
+            for file in (files if isinstance(files, list) else [])[:30]
+        ]
+    compact_pulls = [
+        {k: v for k, v in item.items() if k != "_score"}
+        for item in relevant_prs
+    ]
+
+    readme = ""
+    try:
+        readme_obj = _github_api(f"{base}/readme")
+        if isinstance(readme_obj, dict) and readme_obj.get("content"):
+            readme = base64.b64decode(readme_obj["content"]).decode("utf-8", errors="replace")[:3000]
+    except WorkspaceValidationError:
+        readme = ""
+
+    tree_summary = {"root_files": [], "top_level_dirs": [], "query_paths": []}
+    try:
+        tree = _github_api(
+            f"{base}/git/trees/{urllib.parse.quote(default_branch)}?recursive=1"
+        )
+        entries = tree.get("tree", []) if isinstance(tree, dict) else []
+        paths = [entry.get("path", "") for entry in entries if entry.get("path")]
+        tree_summary["root_files"] = sorted(
+            path for path in paths if "/" not in path
+        )[:40]
+        tree_summary["top_level_dirs"] = sorted({
+            path.split("/", 1)[0] for path in paths if "/" in path
+        })[:40]
+        scored_paths = [
+            (_text_score(path, terms), path)
+            for path in paths
+            if terms and _text_score(path, terms) > 0
+        ]
+        scored_paths.sort(key=lambda item: (-item[0], item[1]))
+        tree_summary["query_paths"] = [path for _, path in scored_paths[:30]]
+    except WorkspaceValidationError:
+        pass
+
+    return json.dumps({
+        "workspace_id": workspace_id,
+        "repository": repository,
+        "query": query,
+        "repository_meta": {
+            "description": metadata.get("description"),
+            "default_branch": default_branch,
+            "updated_at": metadata.get("updated_at"),
+            "pushed_at": metadata.get("pushed_at"),
+        },
+        "recent_commits": compact_commits,
+        "relevant_recent_pull_requests": compact_pulls,
+        "tree_summary": tree_summary,
+        "readme_preview": readme,
+    }, ensure_ascii=False, separators=(",", ":"))
 
 
 # --- Demo fast path ---
