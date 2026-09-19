@@ -50,18 +50,19 @@ class CliHermesRunner:
         workspace_id: str | None = None,
         github_enabled: bool = False,
     ) -> HermesRunResult:
-        toolsets = ["skills", "mcp-mabc-sources"]
-        if github_enabled:
-            toolsets.append("mcp-github-live")
-
+        # Do not pass --toolsets here.
+        #
+        # Hermes 0.21 can fail to expose dynamically discovered stdio MCP tools
+        # when an explicit dynamic MCP toolset is selected for a oneshot
+        # session. The default CLI toolset path correctly injects configured
+        # MCP tools after discovery. ContextPack constrains source use in the
+        # prompt instead.
         cmd = [
             self.hermes_bin,
             "chat",
             "--oneshot",
             "--skills",
             "context-pack",
-            "--toolsets",
-            ",".join(toolsets),
             "--max-turns",
             "5",
             "-q",
@@ -236,7 +237,7 @@ class CliHermesRunner:
 
         return len(
             re.findall(
-                r"(?mi)^.*⚡\s+mcp__",
+                r"(?mi)^.*⚡\s+mcp(?:__|_)",
                 text,
             )
         )
