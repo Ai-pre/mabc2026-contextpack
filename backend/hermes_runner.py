@@ -26,6 +26,7 @@ class HermesRunResult:
     handoff: str
     skill_used: bool
     mcp_tool_calls: int
+    mcp_tools: list[str]
 
 
 class CliHermesRunner:
@@ -162,7 +163,8 @@ class CliHermesRunner:
             and "context-pack" in cmd
         )
 
-        mcp_tool_calls = self._count_mcp_calls(trace_text)
+        mcp_tools = self._extract_mcp_tools(trace_text)
+        mcp_tool_calls = len(mcp_tools)
 
         if mcp_tool_calls == 0:
             raise HermesExecutionError(
@@ -175,6 +177,7 @@ class CliHermesRunner:
             handoff=handoff,
             skill_used=skill_enabled,
             mcp_tool_calls=mcp_tool_calls,
+            mcp_tools=mcp_tools,
         )
 
     @staticmethod
@@ -230,17 +233,17 @@ class CliHermesRunner:
         )
 
     @staticmethod
-    def _count_mcp_calls(text: str) -> int:
-        """
-        Hermes CLI에서 관측 가능한 mabc MCP tool event를 센다.
-        """
-
-        return len(
-            re.findall(
-                r"(?mi)^.*⚡\s+mcp(?:__|_)",
-                text,
-            )
+    def _extract_mcp_tools(text: str) -> list[str]:
+        """Return MCP tool names from Hermes trace events in call order."""
+        return re.findall(
+            r"(?mi)^.*⚡\s+(mcp(?:__|_)[A-Za-z0-9_.:-]+)",
+            text,
         )
+
+    @staticmethod
+    def _count_mcp_calls(text: str) -> int:
+        """Backward-compatible count helper used by tests."""
+        return len(CliHermesRunner._extract_mcp_tools(text))
 
     @staticmethod
     def _extract_handoff(text: str) -> str:
