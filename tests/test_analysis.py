@@ -141,7 +141,7 @@ class AnalysisTests(unittest.TestCase):
         args = launch.call_args.args[0]
         self.assertEqual(args[1:5], ["chat", "--oneshot", "--skills", "context-pack"])
         self.assertNotIn("--toolsets", args)
-        self.assertEqual(args[args.index("--max-turns") + 1], "5")
+        self.assertEqual(args[args.index("--max-turns") + 1], "8")
         self.assertEqual(launch.call_args.kwargs["env"]["CONTEXTPACK_WORKSPACE_ID"], scope)
         self.assertEqual(os.environ.get("CONTEXTPACK_WORKSPACE_ID"), previous)
         self.assertTrue(result.handoff.startswith("[TASK]"))
