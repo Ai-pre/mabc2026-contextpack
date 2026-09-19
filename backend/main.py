@@ -396,7 +396,11 @@ def build_agent_prompt(req, workspace=None):
    - "논의 중/검토 중/제안/초안/예정/후보"는 tentative이고,
      "최종 결정/확정/승인/적용 결정/취소"는 final/authoritative 표현이다.
    - 같은 decision topic에서 tentative 안과 final 결정이 함께 있고 final이 그 안을 확정·대체·취소하는 관계라면
-     둘은 CONFLICT가 아니다. final 결정을 현재 상태로 쓰고 tentative 안은 필요할 때만 과거 논의로 남긴다.
+     둘은 CONFLICT가 아니다. final 결정을 현재 상태로 MUST KNOW에 쓰고 tentative 안은 필요할 때만 과거 논의로 남긴다.
+   - **Finality 보존:** source 안에 명시적 final/authoritative 표현이 있고 그 이후 reopening/conflict/stale 근거가 없다면,
+     "현실에서 나중에 바뀔 수 있다"는 일반적인 가능성만으로 그 결정을 VERIFY BEFORE USE에 다시 넣지 않는다.
+   - final 결정의 세부사항(예: 정확한 시각, 담당자, 대상 환경)이 source에 없으면 final 결정 자체를 불확실하게 만들지 말고
+     확인되지 않은 세부사항만 DO NOT ASSUME으로 분리한다.
    - final 이후 "재논의/재검토/결정 보류/번복" 같은 reopening signal이 있으면 현재 상태를 다시 검증한다.
    - 실제 CONFLICT인 경우 그 fact의 어느 한쪽 값도 MUST KNOW/CONSTRAINTS에 확정 사실로 쓰지 않는다.
    - 더 늦은 날짜만으로 승자를 정하지 않는다. 명시적인 권위/승인 우선순위 근거가 없으면 unresolved 상태를 유지한다.
