@@ -104,6 +104,69 @@ class AnalysisTests(unittest.TestCase):
                 self.assertEqual(response.status_code, status)
                 self.assertEqual(response.json()["detail"], str(error))
 
+    def test_handoff_parser_allows_mcp_tool_name_in_source_map(self):
+        stdout = """[TASK]
+- 결제 모듈의 부분환불 기능 수정
+
+[MUST KNOW]
+- PG API v3 사용.
+
+[CONSTRAINTS]
+- None
+
+[USEFUL IF SPACE ALLOWS]
+- None
+
+[UNRESOLVED CONFLICTS]
+- None
+
+[VERIFY BEFORE USE]
+- None
+
+[DO NOT ASSUME]
+- None
+
+[SOURCE MAP]
+- retrieval: mcp__mabc_sources__demo_context_retrieve
+"""
+        parsed = CliHermesRunner._extract_handoff(stdout)
+        self.assertTrue(parsed.startswith("[TASK]"))
+        self.assertIn("mcp__mabc_sources__demo_context_retrieve", parsed)
+
+    def test_handoff_parser_cuts_runtime_trace_after_final_answer(self):
+        stdout = """[TASK]
+- x
+
+[MUST KNOW]
+- y
+
+[CONSTRAINTS]
+- None
+
+[USEFUL IF SPACE ALLOWS]
+- None
+
+[UNRESOLVED CONFLICTS]
+- None
+
+[VERIFY BEFORE USE]
+- None
+
+[DO NOT ASSUME]
+- None
+
+[SOURCE MAP]
+- github PR #152
+
+⚡ mcp__mabc_sources__demo_context_retrieve
+Resume this session with:
+  hermes --resume abc
+"""
+        parsed = CliHermesRunner._extract_handoff(stdout)
+        self.assertIn("- github PR #152", parsed)
+        self.assertNotIn("⚡", parsed)
+        self.assertNotIn("Resume this session", parsed)
+
     def test_runner_rejects_source_free_handoff(self):
         stdout = """[TASK]
 - x
