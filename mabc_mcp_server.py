@@ -211,7 +211,10 @@ def github_retrieve(
             "message": message,
             "_score": _text_score(message, terms),
         })
-    compact_commits.sort(key=lambda item: (-item["_score"], item.get("date") or ""), reverse=False)
+    compact_commits.sort(
+        key=lambda item: (item["_score"], item.get("date") or ""),
+        reverse=True,
+    )
     compact_commits = [
         {k: v for k, v in item.items() if k != "_score"}
         for item in compact_commits[:recent_limit]
