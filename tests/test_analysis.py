@@ -101,6 +101,37 @@ class AnalysisTests(unittest.TestCase):
                 self.assertEqual(response.status_code, status)
                 self.assertEqual(response.json()["detail"], str(error))
 
+    def test_runner_rejects_source_free_handoff(self):
+        stdout = """[TASK]
+- x
+
+[MUST KNOW]
+- x
+
+[CONSTRAINTS]
+- None
+
+[USEFUL IF SPACE ALLOWS]
+- None
+
+[UNRESOLVED CONFLICTS]
+- None
+
+[VERIFY BEFORE USE]
+- None
+
+[DO NOT ASSUME]
+- None
+
+[SOURCE MAP]
+- None
+"""
+        with patch("hermes_runner.subprocess.run",
+                   return_value=SimpleNamespace(returncode=0, stdout=stdout, stderr="")):
+            with self.assertRaises(HermesExecutionError) as caught:
+                api.runner.run("Test prompt", workspace_id="demo")
+        self.assertIn("without reading any registered Source", str(caught.exception))
+
     def test_cli_command_keeps_context_pack_and_isolates_child_environment(self):
         stdout = (ROOT / "cli_success_stdout.txt").read_text(encoding="utf-8-sig")
         scope = "ws_" + "a" * 32
