@@ -48,13 +48,22 @@ class CliHermesRunner:
         self,
         prompt: str,
         workspace_id: str | None = None,
+        github_enabled: bool = False,
     ) -> HermesRunResult:
+        toolsets = ["skills", "mcp-mabc-sources"]
+        if github_enabled:
+            toolsets.append("mcp-github-live")
+
         cmd = [
             self.hermes_bin,
             "chat",
             "--oneshot",
             "--skills",
             "context-pack",
+            "--toolsets",
+            ",".join(toolsets),
+            "--max-turns",
+            "4",
             "-q",
             prompt,
         ]
@@ -221,7 +230,7 @@ class CliHermesRunner:
 
         return len(
             re.findall(
-                r"(?mi)^.*⚡\s+mcp__mabc",
+                r"(?mi)^.*⚡\s+mcp__",
                 text,
             )
         )
