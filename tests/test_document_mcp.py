@@ -20,7 +20,7 @@ from backend.workspace_store import SourceNotFound, WorkspaceStore, WorkspaceVal
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEMO_TOOL_NAMES = {f"{connector}_{action}" for connector in ("github", "jira", "slack", "notion")
                    for action in ("search", "get")}
-TOOL_NAMES = DEMO_TOOL_NAMES | {"document_retrieve", "document_search", "document_get"}
+TOOL_NAMES = DEMO_TOOL_NAMES | {"demo_context_retrieve", "document_retrieve", "document_search", "document_get"}
 
 
 class DocumentMcpTests(unittest.TestCase):
@@ -46,6 +46,18 @@ class DocumentMcpTests(unittest.TestCase):
 
     def search(self, workspace_id, query="", **arguments):
         return json.loads(sources.document_search(workspace_id, query, **arguments))
+
+    def test_demo_context_retrieve_returns_all_relevant_sources_in_one_call(self):
+        response = json.loads(sources.demo_context_retrieve("결제 모듈 부분환불 기능 수정"))
+        self.assertEqual(response["workspace_id"], "demo")
+        self.assertEqual(set(response["sources"]), {"github", "jira", "slack", "notion"})
+        self.assertEqual({item["id"] for item in response["sources"]["github"]},
+                         {"pr-148", "pr-152", "payment_service.py", "refund_service.py"})
+        self.assertEqual({item["id"] for item in response["sources"]["jira"]},
+                         {"PAY-176", "PAY-179", "PAY-181", "PAY-183"})
+        self.assertEqual(len(response["sources"]["slack"]), 6)
+        self.assertGreaterEqual(len(response["sources"]["notion"]), 2)
+        self.assertIn("provenance", response)
 
     def test_demo_search_and_get_contracts_remain_unchanged(self):
         github = json.loads(sources.github_search("pr-148"))
@@ -98,6 +110,8 @@ class DocumentMcpTests(unittest.TestCase):
                 for name in DEMO_TOOL_NAMES:
                     expected = {"query", "limit"} if name.endswith("search") else {"item_id"}
                     self.assertEqual(set(tools[name].input_schema["properties"]), expected)
+                self.assertEqual(set(tools["demo_context_retrieve"].input_schema["properties"]),
+                                 {"query"})
                 self.assertEqual(set(tools["document_retrieve"].input_schema["properties"]),
                                  {"workspace_id", "query", "top_k", "max_chars_per_doc"})
                 self.assertEqual(set(tools["document_search"].input_schema["properties"]),
