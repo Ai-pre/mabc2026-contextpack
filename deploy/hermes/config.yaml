@@ -15,6 +15,5 @@ mcp_servers:
     enabled: true
     timeout: 120
     connect_timeout: 60
-    lazy: true
     supports_parallel_tool_calls: true
 
