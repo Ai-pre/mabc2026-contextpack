@@ -606,27 +606,24 @@ export default function App() {
     setBusy('')
   }
 
-  async function connectGitHub(repository) {
+  async function connectConnector(kind, payload, label) {
     const id = selectedRef.current
 
     if (
       actionLockRef.current ||
-      !id ||
-      !repository?.trim()
+      !id
     ) {
       return
     }
 
     actionLockRef.current = true
-    setBusy('Connecting GitHub')
+    setBusy(`Connecting ${label}`)
     setIssue(null)
 
     try {
       const data = await workspaceRequest(
-        `/workspaces/${id}/connectors/github`,
-        jsonRequest('POST', {
-          repository: repository.trim(),
-        }),
+        `/workspaces/${id}/connectors/${kind}`,
+        jsonRequest('POST', payload),
       )
 
       setWorkspaces((previous) =>
@@ -648,15 +645,45 @@ export default function App() {
       clearResult()
     } catch (error) {
       setIssue({
-        title: 'Could not connect GitHub',
+        title: `Could not connect ${label}`,
         message: error.message,
         retry: () =>
-          connectGitHub(repository),
+          connectConnector(kind, payload, label),
       })
     } finally {
       actionLockRef.current = false
       setBusy('')
     }
+  }
+
+  function connectGitHub(repository) {
+    const value = repository?.trim()
+    if (!value) return
+    return connectConnector(
+      'github',
+      { repository: value },
+      'GitHub',
+    )
+  }
+
+  function connectSlack(channel) {
+    const value = channel?.trim()
+    if (!value) return
+    return connectConnector(
+      'slack',
+      { channel: value },
+      'Slack',
+    )
+  }
+
+  function connectNotion(page) {
+    const value = page?.trim()
+    if (!value) return
+    return connectConnector(
+      'notion',
+      { page: value },
+      'Notion',
+    )
   }
 
   async function removeSource(source) {
@@ -1015,6 +1042,12 @@ export default function App() {
           onConnectGitHub={
             connectGitHub
           }
+          onConnectSlack={
+            connectSlack
+          }
+          onConnectNotion={
+            connectNotion
+          }
           onRemoveSource={
             removeSource
           }
@@ -1022,7 +1055,7 @@ export default function App() {
           hasWorkspace={Boolean(
             selected,
           )}
-          canConnectGitHub={Boolean(
+          canConnectLiveSources={Boolean(
             selected &&
             !selected.is_demo
           )}
