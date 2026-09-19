@@ -28,8 +28,16 @@ export function jsonRequest(method, body) {
 }
 
 export function sourceLabel(source) {
-  if (source?.source_type === 'connector' && source?.connector === 'github' && source?.repository) {
-    return `GitHub · ${source.repository}`
+  if (source?.source_type === 'connector') {
+    if (source?.connector === 'github' && source?.repository) {
+      return `GitHub · ${source.repository}`
+    }
+    if (source?.connector === 'slack' && source?.channel) {
+      return `Slack · ${source.channel}`
+    }
+    if (source?.connector === 'notion' && source?.page_id) {
+      return `Notion · ${source.page_id.slice(0, 8)}`
+    }
   }
   return source.original_filename || source.title || source.id
 }
