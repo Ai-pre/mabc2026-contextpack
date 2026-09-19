@@ -20,7 +20,7 @@ from backend.workspace_store import SourceNotFound, WorkspaceStore, WorkspaceVal
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEMO_TOOL_NAMES = {f"{connector}_{action}" for connector in ("github", "jira", "slack", "notion")
                    for action in ("search", "get")}
-TOOL_NAMES = DEMO_TOOL_NAMES | {"document_search", "document_get"}
+TOOL_NAMES = DEMO_TOOL_NAMES | {"document_retrieve", "document_search", "document_get"}
 
 
 class DocumentMcpTests(unittest.TestCase):
@@ -98,6 +98,8 @@ class DocumentMcpTests(unittest.TestCase):
                 for name in DEMO_TOOL_NAMES:
                     expected = {"query", "limit"} if name.endswith("search") else {"item_id"}
                     self.assertEqual(set(tools[name].input_schema["properties"]), expected)
+                self.assertEqual(set(tools["document_retrieve"].input_schema["properties"]),
+                                 {"workspace_id", "query", "top_k", "max_chars_per_doc"})
                 self.assertEqual(set(tools["document_search"].input_schema["properties"]),
                                  {"workspace_id", "query", "limit", "offset"})
                 self.assertEqual(set(tools["document_get"].input_schema["properties"]),
@@ -155,6 +157,23 @@ class DocumentMcpTests(unittest.TestCase):
                                            "snippet", "offset", "score"})
         self.assertEqual({item["document_id"] for item in response["results"]}, {item["id"] for item in uploaded})
         self.assertEqual(self.search(workspace_id, "unfindablequeryxyz")["total_matches"], 0)
+
+    def test_document_retrieve_combines_search_and_bounded_reads(self):
+        workspace_id = self.workspace()
+        uploaded = [self.upload_fixture(workspace_id, filename)
+                    for filename in ("notion.md", "github.json", "jira.json")]
+        response = json.loads(sources.document_retrieve(
+            workspace_id, "부분환불 IDEMPOTENCY", top_k=2, max_chars_per_doc=1200
+        ))
+        self.assertEqual(response["total_matches"], 3)
+        self.assertEqual(len(response["results"]), 2)
+        self.assertTrue(all(item["body"] for item in response["results"]))
+        self.assertTrue(all(len(item["body"]) <= 1200 for item in response["results"]))
+        self.assertTrue({item["document_id"] for item in response["results"]}
+                        .issubset({item["id"] for item in uploaded}))
+        self.assertEqual(set(response["results"][0]),
+                         {"document_id", "title", "timestamp", "score", "offset",
+                          "body", "next_offset", "truncated"})
 
     def test_unicode_casefold_offsets_still_use_original_characters(self):
         # Use existing fixture text; helper offsets also cover case-fold expansions without storing test documents.
@@ -231,6 +250,10 @@ class DocumentMcpTests(unittest.TestCase):
                           {"offset": -1}, {"offset": "0"}):
             with self.subTest(arguments=arguments), self.assertRaises(WorkspaceValidationError):
                 sources.document_get(workspace_id, source["id"], **arguments)
+        for arguments in ({"top_k": 0}, {"top_k": 6}, {"top_k": True},
+                          {"max_chars_per_doc": 499}, {"max_chars_per_doc": 6001}):
+            with self.subTest(arguments=arguments), self.assertRaises(WorkspaceValidationError):
+                sources.document_retrieve(workspace_id, "refund", **arguments)
 
     def test_actual_stdio_tool_listing_retrieval_and_scope_errors(self):
         workspace_id = self.workspace()
@@ -252,6 +275,13 @@ class DocumentMcpTests(unittest.TestCase):
                     await client.initialize()
                     listed = await client.list_tools()
                     self.assertEqual({tool.name for tool in listed.tools}, TOOL_NAMES)
+                    result = await client.call_tool("document_retrieve", {
+                        "workspace_id": workspace_id, "query": "부분환불", "top_k": 1
+                    })
+                    self.assertFalse(result.is_error)
+                    response = json.loads(result.content[0].text)
+                    self.assertEqual(response["results"][0]["document_id"], source["id"])
+                    self.assertTrue(response["results"][0]["body"])
                     result = await client.call_tool("document_search", {"workspace_id": workspace_id, "query": "부분환불"})
                     self.assertFalse(result.is_error)
                     response = json.loads(result.content[0].text)
