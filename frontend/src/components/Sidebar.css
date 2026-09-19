@@ -312,3 +312,50 @@
     column-gap: 20px;
   }
 }
+
+
+.sidebar-github-connect {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.sidebar-github-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-primary);
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+
+.sidebar-github-input:focus {
+  border-color: var(--accent);
+}
+
+.sidebar-github-input::placeholder {
+  color: var(--text-muted);
+}
+
+.sidebar-connect-btn {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+  padding: 9px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sidebar-connect-btn:disabled,
+.sidebar-github-input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

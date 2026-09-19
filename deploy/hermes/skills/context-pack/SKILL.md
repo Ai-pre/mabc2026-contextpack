@@ -144,6 +144,15 @@ Handoff Context에서는 다음처럼 분리해 전달한다:
 
 특히 서로 충돌하는 두 정보를 임의로 최신 정보라고 선택해 하나로 만들지 않는다.
 
+#### Conflict Isolation Invariant
+동일한 사실/정책/숫자에 대해 서로 양립할 수 없는 **확정 표현**이 둘 이상 존재하면, 그 사실 전체를 `CONFLICT`로 격리한다.
+
+- 한쪽 claim을 `[MUST KNOW]`, `[CONSTRAINTS]`, `[USEFUL IF SPACE ALLOWS]`에서 확정 사실처럼 다시 쓰지 않는다.
+- 다른 섹션에서 이 주제를 언급해야 한다면 오직 "서로 충돌하는 확정 정보가 있으므로 검증 전 확정하지 말 것"처럼 **충돌 존재 자체**만 전달한다.
+- 날짜가 더 늦다는 이유만으로 자동으로 한쪽을 채택하지 않는다. 제공된 자료 안에 명시적인 권위/버전/승인 우선순위 근거가 있어야만 충돌을 해소할 수 있다.
+- `[UNRESOLVED CONFLICTS]`에는 Claim A + Source + 날짜, Claim B + Source + 날짜, 그리고 무엇이 충돌하는지 남긴다.
+- 최종 출력 직전에 MUST KNOW/CONSTRAINTS와 UNRESOLVED CONFLICTS를 교차 점검한다. 같은 conflict dimension의 한쪽 값이 확정 사실로 중복되면 제거하거나 "검증 필요" 표현으로 바꾼다.
+
 ### 최종 Handoff Context 형식 (고정)
 마지막에는 다음 Agent가 바로 사용할 수 있도록 **복사 가능한 압축 Context Bundle**을 작성한다.
 아래 섹션 순서를 기본 형식으로 사용한다.

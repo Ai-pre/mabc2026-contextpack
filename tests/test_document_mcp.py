@@ -20,7 +20,7 @@ from backend.workspace_store import SourceNotFound, WorkspaceStore, WorkspaceVal
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEMO_TOOL_NAMES = {f"{connector}_{action}" for connector in ("github", "jira", "slack", "notion")
                    for action in ("search", "get")}
-TOOL_NAMES = DEMO_TOOL_NAMES | {"document_search", "document_get"}
+TOOL_NAMES = DEMO_TOOL_NAMES | {"demo_context_retrieve", "github_retrieve", "document_retrieve", "document_search", "document_get"}
 
 
 class DocumentMcpTests(unittest.TestCase):
@@ -46,6 +46,27 @@ class DocumentMcpTests(unittest.TestCase):
 
     def search(self, workspace_id, query="", **arguments):
         return json.loads(sources.document_search(workspace_id, query, **arguments))
+
+    def test_demo_context_retrieve_returns_compact_conflict_preserving_bundle(self):
+        raw = sources.demo_context_retrieve("결제 모듈 부분환불 기능 수정")
+        response = json.loads(raw)
+        self.assertEqual(response["workspace_id"], "demo")
+        self.assertEqual(response["query"], "결제 모듈 부분환불 기능 수정")
+        self.assertLess(len(raw), 7000)
+        self.assertTrue(response["rules"]["preserve_conflicts"])
+        self.assertEqual(response["rules"]["do_not_assume_missing_policy"], ["overseas partial refund"])
+        refs = {item["ref"] for item in response["evidence"]}
+        self.assertIn("PR #148", refs)
+        self.assertIn("PR #152", refs)
+        self.assertIn("PAY-179 / comment by po-jang", refs)
+        self.assertIn("payment-eng / legal-minsu", refs)
+        claims = "\n".join(item["claim"] for item in response["evidence"])
+        self.assertIn("14 days", claims)
+        self.assertIn("keep the general-payment refund window at 7 days", claims)
+        self.assertIn("not defined", claims)
+        self.assertNotIn("PR #160", raw)
+        self.assertNotIn("MKT-42", raw)
+        self.assertNotIn("site-reliability", raw)
 
     def test_demo_search_and_get_contracts_remain_unchanged(self):
         github = json.loads(sources.github_search("pr-148"))
@@ -98,6 +119,12 @@ class DocumentMcpTests(unittest.TestCase):
                 for name in DEMO_TOOL_NAMES:
                     expected = {"query", "limit"} if name.endswith("search") else {"item_id"}
                     self.assertEqual(set(tools[name].input_schema["properties"]), expected)
+                self.assertEqual(set(tools["demo_context_retrieve"].input_schema["properties"]),
+                                 {"query"})
+                self.assertEqual(set(tools["github_retrieve"].input_schema["properties"]),
+                                 {"workspace_id", "query", "repository", "recent_limit"})
+                self.assertEqual(set(tools["document_retrieve"].input_schema["properties"]),
+                                 {"workspace_id", "query", "top_k", "max_chars_per_doc"})
                 self.assertEqual(set(tools["document_search"].input_schema["properties"]),
                                  {"workspace_id", "query", "limit", "offset"})
                 self.assertEqual(set(tools["document_get"].input_schema["properties"]),
@@ -138,6 +165,71 @@ class DocumentMcpTests(unittest.TestCase):
                 with self.assertRaises(WorkspaceValidationError):
                     sources.document_search("demo", "")
 
+    def test_live_github_retrieve_aggregates_registered_repository(self):
+        workspace_id = self.workspace()
+        self.store.add_github_source(workspace_id, "Ai-pre/mabc2026-contextpack")
+
+        def fake_api(path):
+            if path == "/repos/Ai-pre/mabc2026-contextpack":
+                return {
+                    "description": "Context handoff",
+                    "default_branch": "main",
+                    "updated_at": "2026-09-20T00:00:00Z",
+                    "pushed_at": "2026-09-20T00:00:00Z",
+                }
+            if "/commits?" in path:
+                return [{
+                    "sha": "abcdef1234567890",
+                    "commit": {
+                        "message": "perf: route live GitHub through aggregate MCP retrieval",
+                        "author": {"date": "2026-09-20T00:00:00Z"},
+                    },
+                }]
+            if "/pulls?state=all" in path:
+                return [{
+                    "number": 1,
+                    "state": "open",
+                    "draft": True,
+                    "updated_at": "2026-09-20T00:00:00Z",
+                    "merged_at": None,
+                    "title": "feat: add live GitHub MCP connector",
+                    "body": "MCP deployment changes",
+                }]
+            if "/pulls/1/files" in path:
+                return [{"filename": "backend/main.py", "status": "modified", "additions": 10, "deletions": 2}]
+            if path.endswith("/readme"):
+                import base64
+                return {"content": base64.b64encode(b"# ContextPack\nLive GitHub MCP").decode("ascii")}
+            if "/git/trees/" in path:
+                return {"tree": [
+                    {"path": "README.md"}, {"path": "backend/main.py"},
+                    {"path": "deploy/hermes/config.yaml"},
+                ]}
+            raise AssertionError(path)
+
+        with patch.dict(os.environ, {"GITHUB_MCP_TOKEN": "test-token"}), \
+             patch.object(sources, "_github_api", side_effect=fake_api):
+            raw = sources.github_retrieve(
+                workspace_id,
+                "ContextPack MCP deployment changes",
+                "Ai-pre/mabc2026-contextpack",
+            )
+
+        response = json.loads(raw)
+        self.assertEqual(response["repository"], "Ai-pre/mabc2026-contextpack")
+        self.assertEqual(response["recent_commits"][0]["sha"], "abcdef123456")
+        self.assertEqual(response["relevant_recent_pull_requests"][0]["number"], 1)
+        self.assertEqual(
+            response["relevant_recent_pull_requests"][0]["files"][0]["filename"],
+            "backend/main.py",
+        )
+        self.assertIn("deploy/hermes/config.yaml", response["tree_summary"]["query_paths"])
+        self.assertIn("Live GitHub MCP", response["readme_preview"])
+
+        with patch.dict(os.environ, {"GITHUB_MCP_TOKEN": "test-token"}):
+            with self.assertRaises(WorkspaceValidationError):
+                sources.github_retrieve(workspace_id, "x", "other/repo")
+
     def test_multi_term_korean_english_search_and_exact_snippet_offsets(self):
         workspace_id = self.workspace()
         uploaded = [self.upload_fixture(workspace_id, filename) for filename in ("notion.md", "github.json", "jira.json")]
@@ -155,6 +247,23 @@ class DocumentMcpTests(unittest.TestCase):
                                            "snippet", "offset", "score"})
         self.assertEqual({item["document_id"] for item in response["results"]}, {item["id"] for item in uploaded})
         self.assertEqual(self.search(workspace_id, "unfindablequeryxyz")["total_matches"], 0)
+
+    def test_document_retrieve_combines_search_and_bounded_reads(self):
+        workspace_id = self.workspace()
+        uploaded = [self.upload_fixture(workspace_id, filename)
+                    for filename in ("notion.md", "github.json", "jira.json")]
+        response = json.loads(sources.document_retrieve(
+            workspace_id, "부분환불 IDEMPOTENCY", top_k=2, max_chars_per_doc=1200
+        ))
+        self.assertEqual(response["total_matches"], 3)
+        self.assertEqual(len(response["results"]), 2)
+        self.assertTrue(all(item["body"] for item in response["results"]))
+        self.assertTrue(all(len(item["body"]) <= 1200 for item in response["results"]))
+        self.assertTrue({item["document_id"] for item in response["results"]}
+                        .issubset({item["id"] for item in uploaded}))
+        self.assertEqual(set(response["results"][0]),
+                         {"document_id", "title", "timestamp", "score", "offset",
+                          "body", "next_offset", "truncated"})
 
     def test_unicode_casefold_offsets_still_use_original_characters(self):
         # Use existing fixture text; helper offsets also cover case-fold expansions without storing test documents.
@@ -231,6 +340,10 @@ class DocumentMcpTests(unittest.TestCase):
                           {"offset": -1}, {"offset": "0"}):
             with self.subTest(arguments=arguments), self.assertRaises(WorkspaceValidationError):
                 sources.document_get(workspace_id, source["id"], **arguments)
+        for arguments in ({"top_k": 0}, {"top_k": 6}, {"top_k": True},
+                          {"max_chars_per_doc": 499}, {"max_chars_per_doc": 6001}):
+            with self.subTest(arguments=arguments), self.assertRaises(WorkspaceValidationError):
+                sources.document_retrieve(workspace_id, "refund", **arguments)
 
     def test_actual_stdio_tool_listing_retrieval_and_scope_errors(self):
         workspace_id = self.workspace()
@@ -252,6 +365,13 @@ class DocumentMcpTests(unittest.TestCase):
                     await client.initialize()
                     listed = await client.list_tools()
                     self.assertEqual({tool.name for tool in listed.tools}, TOOL_NAMES)
+                    result = await client.call_tool("document_retrieve", {
+                        "workspace_id": workspace_id, "query": "부분환불", "top_k": 1
+                    })
+                    self.assertFalse(result.is_error)
+                    response = json.loads(result.content[0].text)
+                    self.assertEqual(response["results"][0]["document_id"], source["id"])
+                    self.assertTrue(response["results"][0]["body"])
                     result = await client.call_tool("document_search", {"workspace_id": workspace_id, "query": "부분환불"})
                     self.assertFalse(result.is_error)
                     response = json.loads(result.content[0].text)

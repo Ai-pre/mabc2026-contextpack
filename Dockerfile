@@ -44,7 +44,8 @@ RUN mkdir -p /app/hermes-home/skills/context-pack
 
 COPY deploy/hermes/config.yaml /app/hermes-home/config.yaml
 COPY deploy/hermes/skills/context-pack/ /app/hermes-home/skills/context-pack/
+RUN chmod +x /app/deploy/hermes/start.sh
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "python -m uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+CMD ["/app/deploy/hermes/start.sh"]

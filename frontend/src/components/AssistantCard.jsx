@@ -4,8 +4,18 @@ import './AssistantCard.css'
 
 const WORKFLOW_STAGES = ['Understand task', 'Explore workspace sources', 'Evaluate evidence', 'Build handoff']
 
+function readableMcpTool(name) {
+  if (typeof name !== 'string') return String(name || '')
+  const parts = name.split('__')
+  if (parts.length >= 3 && parts[0] === 'mcp') {
+    return `${parts[1].replaceAll('_', '-')} / ${parts.slice(2).join('__')}`
+  }
+  return name
+}
+
 function AssistantCard({ message, onRetry }) {
-  const { status, elapsedSec, toolCalls, skillUsed, handoff, error, errorDetail, sources = [] } = message
+  const { status, elapsedSec, toolCalls, skillUsed, handoff, error, errorDetail, sources = [], trace = {} } = message
+  const mcpTools = Array.isArray(trace.mcp_tools) ? trace.mcp_tools : []
 
   return (
     <div className={`assistant-card assistant-card--${status}`}>
@@ -66,6 +76,12 @@ function AssistantCard({ message, onRetry }) {
               <span className="meta-sep" />
               <span>{skillUsed == null ? 'ContextPack Unavailable' : skillUsed ? 'ContextPack Enabled' : 'ContextPack Disabled'}</span>
             </div>
+            {mcpTools.length > 0 && (
+              <div className="result-tools" title={mcpTools.join('\n')}>
+                <span className="result-tools-label">MCP used</span>
+                <span>{mcpTools.map(readableMcpTool).join(' · ')}</span>
+              </div>
+            )}
           </div>
         </div>
       )}

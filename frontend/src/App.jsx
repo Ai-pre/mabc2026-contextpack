@@ -606,12 +606,67 @@ export default function App() {
     setBusy('')
   }
 
+  async function connectGitHub(repository) {
+    const id = selectedRef.current
+
+    if (
+      actionLockRef.current ||
+      !id ||
+      !repository?.trim()
+    ) {
+      return
+    }
+
+    actionLockRef.current = true
+    setBusy('Connecting GitHub')
+    setIssue(null)
+
+    try {
+      const data = await workspaceRequest(
+        `/workspaces/${id}/connectors/github`,
+        jsonRequest('POST', {
+          repository: repository.trim(),
+        }),
+      )
+
+      setWorkspaces((previous) =>
+        previous.map((item) =>
+          item.workspace_id === id
+            ? {
+                ...item,
+                sources: [
+                  ...item.sources,
+                  data.source,
+                ],
+              }
+            : item,
+        ),
+      )
+
+      invalidateWorkspaceSession(id)
+      setUploadReports([])
+      clearResult()
+    } catch (error) {
+      setIssue({
+        title: 'Could not connect GitHub',
+        message: error.message,
+        retry: () =>
+          connectGitHub(repository),
+      })
+    } finally {
+      actionLockRef.current = false
+      setBusy('')
+    }
+  }
+
   async function removeSource(source) {
     const id = selectedRef.current
 
     if (
       actionLockRef.current ||
-      source.source_type !== 'upload'
+      !['upload', 'connector'].includes(
+        source.source_type,
+      )
     ) {
       return
     }
@@ -917,7 +972,7 @@ export default function App() {
   const helperText = !selected
     ? 'Connect to the API to create or select a workspace.'
     : !sources.length
-      ? 'Add at least one source file before building context.'
+      ? 'Add a file or connect a GitHub repository before building context.'
       : 'Ctrl+Enter to build · Context is gathered only from this workspace’s sources.'
 
   return (
@@ -957,12 +1012,19 @@ export default function App() {
           onAddSources={() =>
             fileInputRef.current?.click()
           }
+          onConnectGitHub={
+            connectGitHub
+          }
           onRemoveSource={
             removeSource
           }
           disabled={disabled}
           hasWorkspace={Boolean(
             selected,
+          )}
+          canConnectGitHub={Boolean(
+            selected &&
+            !selected.is_demo
           )}
           status={
             mode === 'processing'

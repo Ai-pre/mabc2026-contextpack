@@ -26,6 +26,7 @@ class HermesRunResult:
     handoff: str
     skill_used: bool
     mcp_tool_calls: int
+    mcp_tools: list[str]
 
 
 class CliHermesRunner:
@@ -48,13 +49,23 @@ class CliHermesRunner:
         self,
         prompt: str,
         workspace_id: str | None = None,
+        github_enabled: bool = False,
     ) -> HermesRunResult:
+        # Do not pass --toolsets here.
+        #
+        # Hermes 0.21 can fail to expose dynamically discovered stdio MCP tools
+        # when an explicit dynamic MCP toolset is selected for a oneshot
+        # session. The default CLI toolset path correctly injects configured
+        # MCP tools after discovery. ContextPack constrains source use in the
+        # prompt instead.
         cmd = [
             self.hermes_bin,
             "chat",
             "--oneshot",
             "--skills",
             "context-pack",
+            "--max-turns",
+            "8",
             "-q",
             prompt,
         ]
@@ -152,13 +163,21 @@ class CliHermesRunner:
             and "context-pack" in cmd
         )
 
+        mcp_tools = self._extract_mcp_tools(trace_text)
+        mcp_tool_calls = len(mcp_tools)
+
+        if mcp_tool_calls == 0:
+            raise HermesExecutionError(
+                "Hermes produced a Handoff without reading any registered Source. "
+                "ContextPack refuses source-free handoffs; retry the analysis."
+            )
+
         return HermesRunResult(
             duration_sec=round(duration, 2),
             handoff=handoff,
             skill_used=skill_enabled,
-            mcp_tool_calls=self._count_mcp_calls(
-                trace_text
-            ),
+            mcp_tool_calls=mcp_tool_calls,
+            mcp_tools=mcp_tools,
         )
 
     @staticmethod
@@ -214,17 +233,17 @@ class CliHermesRunner:
         )
 
     @staticmethod
-    def _count_mcp_calls(text: str) -> int:
-        """
-        Hermes CLI에서 관측 가능한 mabc MCP tool event를 센다.
-        """
-
-        return len(
-            re.findall(
-                r"(?mi)^.*⚡\s+mcp__mabc",
-                text,
-            )
+    def _extract_mcp_tools(text: str) -> list[str]:
+        """Return MCP tool names from Hermes trace events in call order."""
+        return re.findall(
+            r"(?mi)^.*⚡\s+(mcp(?:__|_)[A-Za-z0-9_.:-]+)",
+            text,
         )
+
+    @staticmethod
+    def _count_mcp_calls(text: str) -> int:
+        """Backward-compatible count helper used by tests."""
+        return len(CliHermesRunner._extract_mcp_tools(text))
 
     @staticmethod
     def _extract_handoff(text: str) -> str:
@@ -313,6 +332,14 @@ class CliHermesRunner:
                 # Hermes CLI closing / signature
                 r"(?mi)^\s*[-—─?]+\s*Hermes\s*$",
 
+                # Runtime/tool trace that may be printed after the final answer.
+                # Match trace-shaped lines only; ordinary SOURCE MAP text is allowed
+                # to mention names such as mcp__mabc_sources__demo_context_retrieve.
+                r"(?mi)^\s*Initializing agent\.\.\..*$",
+                r"(?mi)^\s*[│┃]?\s*[⚡🔧🧰🔍]\s+.*$",
+                r"(?mi)^\s*[│┃]?\s*preparing(?:_|\s).*$",
+                r"(?mi)^\s*Local tools require one entry per tool_call.*$",
+
                 # 응답 뒤 commentary
                 r"(?mi)^\s*ContextPack\s+(?:완성|complete|ready)\b.*$",
                 r"(?mi)^\s*파일:.*$",
@@ -346,20 +373,17 @@ class CliHermesRunner:
 
             # 3. 이제 Handoff 본문 내부에 runtime/tool trace가
             #    섞였는지만 검사한다.
-            runtime_markers = [
-                "Initializing agent",
-                "preparing_tool_call",
-                "preparing tool_call",
-                "| DSML |",
-                "mcp__mabc",
-                "Local tools require one entry per tool_call",
+            runtime_line_patterns = [
+                r"(?mi)^\s*Initializing agent\.\.\..*$",
+                r"(?mi)^\s*[│┃]?\s*[⚡🔧🧰🔍]\s+.*$",
+                r"(?mi)^\s*[│┃]?\s*preparing(?:_|\s).*$",
+                r"(?mi)^\s*\|\s*DSML\s*\|.*$",
+                r"(?mi)^\s*Local tools require one entry per tool_call.*$",
             ]
 
-            lower_candidate = candidate.lower()
-
             if any(
-                marker.lower() in lower_candidate
-                for marker in runtime_markers
+                re.search(pattern, candidate)
+                for pattern in runtime_line_patterns
             ):
                 continue
 

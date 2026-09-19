@@ -106,11 +106,34 @@ notion_search   / notion_get
   - TXT
   - MD
   - JSON
-- **GitHub / Jira / Slack / Notion**: demo용 mock connector
-  - 실제 서비스와 동일한 Tool interface로 구성
+- **Uploaded documents**: 자체 MCP server의 `document_search/document_get`으로 실제 동작
+- **GitHub**: Workspace-scoped `github_retrieve` MCP Tool이 GitHub API의 live read-only evidence를 한 번에 수집
+- **Jira / Slack / Notion**: 현재 demo용 mock connector
   - Agent가 Task에 따라 필요한 Source/Tool을 선택하는 흐름 검증
 
-향후 mock connector 내부를 실제 SaaS API 호출로 교체하면 상위 Hermes / Solar / ContextPack 구조를 유지한 채 확장할 수 있습니다.
+GitHub 연결은 Workspace에 `owner/repo`를 Source로 등록하고, Hermes가 `mabc-sources` MCP의 `github_retrieve`를 우선 호출하도록 구성됩니다. 이 Tool은 recent commits/PRs, 관련 PR 변경 파일, repository tree 요약, README 맥락을 한 번에 반환해 granular tool loop를 줄입니다. 공식 GitHub Remote MCP는 정확한 세부 확인이 필요한 경우에만 opt-in fallback으로 사용할 수 있습니다. Jira/Slack/Notion도 같은 retrieve-first Connector 패턴으로 확장할 예정입니다.
+
+## Real Workspace Path
+
+The production-oriented path is source-driven rather than demo-specific.
+
+```text
+Workspace
+├── Uploaded documents → mabc-sources / document_retrieve
+└── Connected GitHub   → mabc-sources / github_retrieve (live read-only)
+                         ↓
+                      Hermes
+                         ↓
+                    Solar Pro 4
+                         ↓
+                  ContextPack Skill
+                         ↓
+                  Handoff Context
+```
+
+A real workspace only exposes evidence from sources registered to that workspace. Uploaded documents use `document_retrieve`; connected GitHub repositories use the aggregate `github_retrieve` MCP Tool. The official granular GitHub Remote MCP is disabled by default and can be enabled with `GITHUB_REMOTE_MCP_ENABLED=1` as a detail fallback. Jira, Slack and Notion demo fixtures remain isolated to the demo workspace and are not treated as live integrations.
+
+Completed analyses return an execution trace containing the exact MCP tool names that were used. The UI shows this trace so live-connector E2E runs can be verified without inferring tool usage from the generated Handoff.
 
 ## Demo Scenario
 
@@ -179,7 +202,17 @@ npm --prefix frontend install
 npm --prefix frontend run build
 ```
 
-### 3. Run FastAPI
+### 3. Optional: enable live GitHub MCP
+
+Create a fine-grained GitHub token with read access only to the repositories ContextPack should inspect, then expose it to the server process:
+
+```bash
+export GITHUB_MCP_TOKEN=your_token_here
+```
+
+The Docker entrypoint enables the official GitHub Remote MCP server only when this variable is present. The MCP connection is configured as read-only and uses the `repos,pull_requests` toolsets.
+
+### 4. Run FastAPI
 
 ```bash
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
@@ -214,7 +247,8 @@ http://127.0.0.1:8000
 Current MVP limitations:
 
 - lexical retrieval only
-- GitHub/Jira/Slack/Notion live accounts not yet connected
+- GitHub live MCP uses a server-side token in the current prototype; per-user OAuth/GitHub App authorization is not implemented yet
+- Jira/Slack/Notion live accounts not yet connected
 - local single-process workspace storage
 - no OCR for image-only PDFs
 - no enterprise authentication / permission model
