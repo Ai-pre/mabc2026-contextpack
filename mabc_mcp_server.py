@@ -469,8 +469,16 @@ def slack_retrieve(
     cache_reused = snapshot is not None
 
     if snapshot is None:
+        def fetch_info():
+            try:
+                return _slack_api("conversations.info", channel=channel)
+            except WorkspaceValidationError:
+                # Channel metadata is helpful but not required for evidence retrieval.
+                # This keeps the connector usable with history-only read scopes.
+                return {}
+
         with ThreadPoolExecutor(max_workers=2) as pool:
-            info_future = pool.submit(_slack_api, "conversations.info", channel=channel)
+            info_future = pool.submit(fetch_info)
             history_future = pool.submit(
                 _slack_api, "conversations.history", channel=channel, limit=message_limit
             )
