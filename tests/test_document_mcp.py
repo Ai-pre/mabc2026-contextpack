@@ -59,6 +59,27 @@ class DocumentMcpTests(unittest.TestCase):
         self.assertGreaterEqual(len(response["sources"]["notion"]), 2)
         self.assertIn("provenance", response)
 
+    def test_demo_context_retrieve_returns_compact_conflict_preserving_bundle(self):
+        raw = sources.demo_context_retrieve("결제 모듈 부분환불 기능 수정")
+        response = json.loads(raw)
+        self.assertEqual(response["workspace_id"], "demo")
+        self.assertEqual(response["query"], "결제 모듈 부분환불 기능 수정")
+        self.assertLess(len(raw), 7000)
+        self.assertTrue(response["rules"]["preserve_conflicts"])
+        self.assertEqual(response["rules"]["do_not_assume_missing_policy"], ["overseas partial refund"])
+        refs = {item["ref"] for item in response["evidence"]}
+        self.assertIn("PR #148", refs)
+        self.assertIn("PR #152", refs)
+        self.assertIn("PAY-179 / comment by po-jang", refs)
+        self.assertIn("payment-eng / legal-minsu", refs)
+        claims = "\n".join(item["claim"] for item in response["evidence"])
+        self.assertIn("14 days", claims)
+        self.assertIn("keep the general-payment refund window at 7 days", claims)
+        self.assertIn("not defined", claims)
+        self.assertNotIn("PR #160", raw)
+        self.assertNotIn("MKT-42", raw)
+        self.assertNotIn("site-reliability", raw)
+
     def test_demo_search_and_get_contracts_remain_unchanged(self):
         github = json.loads(sources.github_search("pr-148"))
         self.assertEqual(github, [{
