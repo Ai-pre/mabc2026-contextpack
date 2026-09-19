@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -125,6 +126,11 @@ class GitHubSourceCreate(BaseModel):
 
 @app.post("/workspaces/{workspace_id}/connectors/github", status_code=201)
 def connect_github(workspace_id: str, req: GitHubSourceCreate):
+    if not os.environ.get("GITHUB_MCP_TOKEN", "").strip():
+        raise HTTPException(
+            status_code=503,
+            detail="Live GitHub MCP is not configured on this server. Set GITHUB_MCP_TOKEN first.",
+        )
     source = workspace_store.add_github_source(workspace_id, req.repository)
     return {"success": True, "source": source}
 
@@ -288,7 +294,10 @@ context-pack Skill의 최종 Handoff Context만 출력한다.
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "github_mcp_enabled": bool(os.environ.get("GITHUB_MCP_TOKEN", "").strip()),
+    }
 
 
 @app.post("/analyze", response_model=AnalyzeResponse)
