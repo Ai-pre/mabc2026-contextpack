@@ -94,50 +94,92 @@ def _tool(name: str, description: str, fn):
 
 @server.tool()
 def demo_context_retrieve(query: str) -> str:
-    """Return the task-relevant demo evidence bundle in one MCP call.
+    """Return the compact, task-relevant demo evidence bundle in one MCP call.
 
-    The demo fixture is intentionally small and fixed. This fast path preserves
-    source boundaries while avoiding repeated Solar -> search/get -> Solar
-    round trips across GitHub, Jira, Slack and Notion.
-
-    It excludes known irrelevant frontend/marketing/SRE fixtures and returns the
-    backend/payment evidence needed to detect stale, conflicting and missing
-    information for the partial-refund scenario.
+    The demo fixture is fixed and intentionally contains stale, conflicting,
+    missing and irrelevant information. This fast path keeps only the claims
+    needed for the partial-refund handoff while preserving source/date/provenance.
     """
     _require_workspace(demo_only=True)
     if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
         raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
 
-    github_ids = {"pr-148", "pr-152", "payment_service.py", "refund_service.py"}
-    jira_ids = {"PAY-176", "PAY-179", "PAY-181", "PAY-183"}
-
-    github = [item for item in _GITHUB.get("items", []) if item.get("id") in github_ids]
-    jira = [item for item in _JIRA.get("issues", []) if item.get("id") in jira_ids]
-    slack = [
-        {"channel": "payment-eng", **message}
-        for message in _SLACK.get("channels", {}).get("payment-eng", [])
-    ]
-    notion = [
-        {"id": section["id"], "title": section["title"], "content": section["content"]}
-        for section in _NOTION_SECTIONS
+    evidence = [
+        {
+            "source": "github",
+            "ref": "PR #148",
+            "date": "2026-09-02",
+            "claim": "PG API v2→v3 migration merged; v2 endpoint deprecated/removed; existing transaction compatibility and idempotency retained.",
+        },
+        {
+            "source": "github",
+            "ref": "PR #152",
+            "date": "2026-09-09",
+            "claim": "PARTIAL_REFUND status and partial-refund support merged; PG API v3 is used; existing refund transaction idempotency must be retained.",
+        },
+        {
+            "source": "github",
+            "ref": "refund_service.py",
+            "date": None,
+            "claim": "partial_refund(payment_id, amount, idempotency_key) calls the PG v3 partial-refund endpoint; overseas-payment partial-refund business policy is not defined.",
+        },
+        {
+            "source": "jira",
+            "ref": "PAY-183",
+            "date": "2026-09-10",
+            "claim": "Partial refund support is Done; PR #152 merged; PARTIAL_REFUND and idempotency requirements are confirmed.",
+        },
+        {
+            "source": "jira",
+            "ref": "PAY-181",
+            "date": "2026-09-11",
+            "claim": "Subscription partial refunds can use the existing policy; overseas partial refunds require a separate policy that is still undefined.",
+        },
+        {
+            "source": "jira",
+            "ref": "PAY-179 / comment by po-jang",
+            "date": "2026-09-12",
+            "claim": "General-payment refund window was finally approved as 14 days, effective 2026-10-01.",
+            "certainty": "explicit final/approved claim",
+        },
+        {
+            "source": "slack",
+            "ref": "payment-eng / legal-minsu",
+            "date": "2026-09-12",
+            "claim": "Legal review final decision: keep the general-payment refund window at 7 days; the 14-day change was cancelled.",
+            "certainty": "explicit final decision claim",
+        },
+        {
+            "source": "slack",
+            "ref": "payment-eng / developer-yuki",
+            "date": "2026-09-11",
+            "claim": "Partial-refund implementation must use PG API v3; v2 is deprecated.",
+        },
+        {
+            "source": "notion",
+            "ref": "결제 시스템 아키텍처",
+            "date": "2026-08-10",
+            "claim": "Older document says PG API v2, partial refunds unsupported, and refund window 7 days.",
+            "status": "stale_candidate",
+        },
+        {
+            "source": "notion",
+            "ref": "2026 Q3 결제 시스템 변경 요약",
+            "date": "2026-09-05",
+            "claim": "Summary says PG API v3 migration completed, PARTIAL_REFUND added, partial refunds supported, while 7→14-day refund-window change was still under discussion.",
+        },
     ]
 
     return json.dumps({
         "workspace_id": "demo",
         "query": query,
-        "sources": {
-            "github": github,
-            "jira": jira,
-            "slack": slack,
-            "notion": notion,
+        "evidence": evidence,
+        "rules": {
+            "preserve_conflicts": True,
+            "do_not_assume_missing_policy": ["overseas partial refund"],
+            "ignore_irrelevant_demo_items": ["frontend", "marketing", "site-reliability"],
         },
-        "provenance": {
-            "github": "data/demo_project/github.json",
-            "jira": "data/demo_project/jira.json",
-            "slack": "data/demo_project/slack.json#payment-eng",
-            "notion": "data/demo_project/notion.md",
-        },
-    }, ensure_ascii=False, indent=2)
+    }, ensure_ascii=False, separators=(",", ":"))
 
 
 # --- GitHub ---
