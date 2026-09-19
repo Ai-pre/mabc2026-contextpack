@@ -85,10 +85,10 @@ _NOTION_SECTIONS = _split_notion_sections(_NOTION)
 # tool 정의
 # ---------------------------------------------------------------------------
 
-server = MCPServer("mabc-sources", "1.0.0",
+server = MCPServer("mabc-sources", "1.1.0",
                    description="ContextPack workspace source connector. " +
-                   "업로드 문서와 demo workspace의 GitHub, Jira, Slack, Notion 데이터를 제공한다. " +
-                   "Solar Agent가 Role+Task에 따라 필요한 tool을 선택하여 호출한다.")
+                   "업로드 문서와 live GitHub/Slack/Notion Source, demo fixture를 제공한다. " +
+                   "Solar Agent가 Role+Task에 따라 필요한 retrieve tool을 선택하여 호출한다.")
 
 
 def _tool(name: str, description: str, fn):
