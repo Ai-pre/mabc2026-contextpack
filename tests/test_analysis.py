@@ -83,7 +83,8 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs, {"workspace_id": workspace_id, "github_enabled": True})
         prompt = run.call_args.args[0]
         self.assertIn("Ai-pre/mabc2026-contextpack", prompt)
-        self.assertIn("github-live", prompt)
+        self.assertIn("github_retrieve", prompt)
+        self.assertIn("aggregate retrieve", prompt)
         self.assertIn("다른 repository를 검색하거나 근거로 사용하지 않는다", prompt)
 
     def test_invalid_or_empty_workspace_never_launches_runner(self):
