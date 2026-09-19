@@ -44,7 +44,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(data["handoff"], self.result.handoff)
         self.assertEqual(data["duration_sec"], self.result.duration_sec)
         self.assertEqual(data["trace"], {"skill_used": self.result.skill_used, "mcp_tool_calls": self.result.mcp_tool_calls})
-        self.assertEqual(run.call_args.kwargs, {"workspace_id": "demo"})
+        self.assertEqual(run.call_args.kwargs, {"workspace_id": "demo", "github_enabled": False})
 
     def test_uploaded_workspace_passes_scope_without_raw_documents(self):
         workspace_id = self.store.create_workspace("Upload test")["workspace_id"]
@@ -53,9 +53,10 @@ class AnalysisTests(unittest.TestCase):
         with patch.object(api.runner, "run", return_value=self.result) as run:
             response = self.client.post("/analyze", json={"workspace_id": workspace_id, "role": "Reviewer", "task": "Review changes"})
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(run.call_args.kwargs, {"workspace_id": workspace_id})
+        self.assertEqual(run.call_args.kwargs, {"workspace_id": workspace_id, "github_enabled": False})
         prompt = run.call_args.args[0]
         self.assertIn(workspace_id, prompt)
+        self.assertIn("document_retrieve", prompt)
         self.assertIn("document_search", prompt)
         self.assertNotIn("github_search", prompt)
         self.assertNotIn(raw.decode("utf-8").strip(), prompt)
@@ -71,6 +72,7 @@ class AnalysisTests(unittest.TestCase):
                 "task": "Review the latest repository changes",
             })
         self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(run.call_args.kwargs, {"workspace_id": workspace_id, "github_enabled": True})
         prompt = run.call_args.args[0]
         self.assertIn("Ai-pre/mabc2026-contextpack", prompt)
         self.assertIn("github-live", prompt)
@@ -107,6 +109,9 @@ class AnalysisTests(unittest.TestCase):
             result = api.runner.run("Test prompt", workspace_id=scope)
         args = launch.call_args.args[0]
         self.assertEqual(args[1:5], ["chat", "--oneshot", "--skills", "context-pack"])
+        self.assertIn("--toolsets", args)
+        self.assertEqual(args[args.index("--toolsets") + 1], "skills,mcp-mabc-sources")
+        self.assertEqual(args[args.index("--max-turns") + 1], "5")
         self.assertEqual(launch.call_args.kwargs["env"]["CONTEXTPACK_WORKSPACE_ID"], scope)
         self.assertEqual(os.environ.get("CONTEXTPACK_WORKSPACE_ID"), previous)
         self.assertTrue(result.handoff.startswith("[TASK]"))
