@@ -9,4 +9,5 @@
     enabled: true
     timeout: 120
     connect_timeout: 60
-    supports_parallel_tool_calls: false
+    lazy: true
+    supports_parallel_tool_calls: true
