@@ -391,11 +391,15 @@ def build_agent_prompt(req, workspace=None):
    - VERIFY BEFORE USE로 표시하고, 최신 정보와 불일치함을 함께 적는다.
 
 2. **CONFLICT (서로 충돌하는 확정 정보)**
-   - 서로 다른 source에 같은 사실에 대해 다른 내용이 둘 다 확정 표현으로 적혀 있으면
+   - 서로 다른 source에 같은 사실에 대해 다른 내용이 **둘 다 확정 표현**으로 적혀 있을 때만
      하나를 임의로 선택하지 말고 UNRESOLVED CONFLICT로 남긴다.
-   - 충돌한 fact의 어느 한쪽 값도 MUST KNOW/CONSTRAINTS에 확정 사실로 쓰지 않는다.
+   - "논의 중/검토 중/제안/초안/예정/후보"는 tentative이고,
+     "최종 결정/확정/승인/적용 결정/취소"는 final/authoritative 표현이다.
+   - 같은 decision topic에서 tentative 안과 final 결정이 함께 있고 final이 그 안을 확정·대체·취소하는 관계라면
+     둘은 CONFLICT가 아니다. final 결정을 현재 상태로 쓰고 tentative 안은 필요할 때만 과거 논의로 남긴다.
+   - final 이후 "재논의/재검토/결정 보류/번복" 같은 reopening signal이 있으면 현재 상태를 다시 검증한다.
+   - 실제 CONFLICT인 경우 그 fact의 어느 한쪽 값도 MUST KNOW/CONSTRAINTS에 확정 사실로 쓰지 않는다.
    - 더 늦은 날짜만으로 승자를 정하지 않는다. 명시적인 권위/승인 우선순위 근거가 없으면 unresolved 상태를 유지한다.
-   - 검토 중/논의 중처럼 확정되지 않은 내용은 확정 사실과 구분한다.
 
 3. **MISSING (현재 자료에 없는 정보)**
    - 작업에 필요한데 어느 source에도 없는 정보는 DO NOT ASSUME / MISSING으로 남기고 임의로 추측하지 않는다.
