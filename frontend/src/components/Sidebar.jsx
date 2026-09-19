@@ -3,11 +3,32 @@ import { motion } from 'motion/react'
 import { sourceLabel } from '../workspaceApi'
 import './Sidebar.css'
 
-function Sidebar({ workspaces, selectedId, sources, onNewPack, onSelectWorkspace, onAddSources, onConnectGitHub, onRemoveSource, disabled, hasWorkspace, canConnectGitHub, status }) {
+function Sidebar({
+  workspaces,
+  selectedId,
+  sources,
+  onNewPack,
+  onSelectWorkspace,
+  onAddSources,
+  onConnectGitHub,
+  onConnectSlack,
+  onConnectNotion,
+  onRemoveSource,
+  disabled,
+  hasWorkspace,
+  canConnectLiveSources,
+  status,
+}) {
   const [githubRepo, setGithubRepo] = useState('')
+  const [slackChannel, setSlackChannel] = useState('')
+  const [notionPage, setNotionPage] = useState('')
+
   const uploaded = sources.filter((source) => source.source_type === 'upload')
   const connected = sources.filter((source) => source.source_type === 'connector')
   const demo = sources.filter((source) => source.source_type === 'demo')
+
+  const connectorDisabled = disabled || !canConnectLiveSources
+
   return (
     <motion.aside
       className="sidebar"
@@ -16,7 +37,6 @@ function Sidebar({ workspaces, selectedId, sources, onNewPack, onSelectWorkspace
       transition={{ duration: 0.3, ease: [0.2, 0, 0, 1] }}
     >
       <div className="sidebar-inner">
-        {/* Brand */}
         <div className="sidebar-brand">
           <svg className="sidebar-logo" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
             <rect width="32" height="32" rx="8" fill="var(--accent)" fillOpacity="0.15" />
@@ -28,7 +48,6 @@ function Sidebar({ workspaces, selectedId, sources, onNewPack, onSelectWorkspace
 
         <div className="sidebar-divider" />
 
-        {/* Menu */}
         <nav className="sidebar-nav" aria-label="ContextPack menu">
           <button type="button" className="sidebar-item" onClick={onNewPack} disabled={disabled}>
             <span className="sidebar-item-icon">+</span>
@@ -53,32 +72,90 @@ function Sidebar({ workspaces, selectedId, sources, onNewPack, onSelectWorkspace
           </button>
           <p className="sidebar-source-help">PDF, DOCX, TXT, MD, JSON · 10 MiB each</p>
 
-          <div className="sidebar-github-connect">
+          <div className="sidebar-connector">
+            <div className="sidebar-connector-label">GitHub</div>
             <input
               type="text"
               className="sidebar-github-input"
               value={githubRepo}
               onChange={(event) => setGithubRepo(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && githubRepo.trim() && canConnectGitHub && !disabled) {
+                if (event.key === 'Enter' && githubRepo.trim() && !connectorDisabled) {
                   event.preventDefault()
                   onConnectGitHub(githubRepo.trim())
                 }
               }}
               placeholder="owner/repo or GitHub URL"
               aria-label="GitHub repository"
-              disabled={disabled || !canConnectGitHub}
+              disabled={connectorDisabled}
             />
             <button
               type="button"
               className="sidebar-connect-btn"
               onClick={() => onConnectGitHub(githubRepo.trim())}
-              disabled={disabled || !canConnectGitHub || !githubRepo.trim()}
+              disabled={connectorDisabled || !githubRepo.trim()}
             >
               Connect GitHub
             </button>
           </div>
-          <p className="sidebar-source-help">Live GitHub uses the server-side read-only MCP connection.</p>
+
+          <div className="sidebar-connector">
+            <div className="sidebar-connector-label">Slack</div>
+            <input
+              type="text"
+              className="sidebar-github-input"
+              value={slackChannel}
+              onChange={(event) => setSlackChannel(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && slackChannel.trim() && !connectorDisabled) {
+                  event.preventDefault()
+                  onConnectSlack(slackChannel.trim())
+                }
+              }}
+              placeholder="Channel URL or C012ABCDEF"
+              aria-label="Slack channel"
+              disabled={connectorDisabled}
+            />
+            <button
+              type="button"
+              className="sidebar-connect-btn"
+              onClick={() => onConnectSlack(slackChannel.trim())}
+              disabled={connectorDisabled || !slackChannel.trim()}
+            >
+              Connect Slack
+            </button>
+          </div>
+
+          <div className="sidebar-connector">
+            <div className="sidebar-connector-label">Notion</div>
+            <input
+              type="text"
+              className="sidebar-github-input"
+              value={notionPage}
+              onChange={(event) => setNotionPage(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && notionPage.trim() && !connectorDisabled) {
+                  event.preventDefault()
+                  onConnectNotion(notionPage.trim())
+                }
+              }}
+              placeholder="Notion page URL or page ID"
+              aria-label="Notion page"
+              disabled={connectorDisabled}
+            />
+            <button
+              type="button"
+              className="sidebar-connect-btn"
+              onClick={() => onConnectNotion(notionPage.trim())}
+              disabled={connectorDisabled || !notionPage.trim()}
+            >
+              Connect Notion
+            </button>
+          </div>
+
+          <p className="sidebar-source-help">
+            Live connectors use server-side read-only credentials. Demo workspace remains isolated.
+          </p>
 
           {connected.length > 0 && <>
             <div className="sidebar-source-group">Connected <span>{connected.length}</span></div>
@@ -106,6 +183,7 @@ function Sidebar({ workspaces, selectedId, sources, onNewPack, onSelectWorkspace
             ))}
             {!uploaded.length && <p className="sidebar-empty">No uploaded files yet.</p>}
           </div>
+
           {demo.length > 0 && <>
             <div className="sidebar-source-group">Demo fixtures <span>{demo.length}</span></div>
             <div className="sidebar-sources">
@@ -117,7 +195,6 @@ function Sidebar({ workspaces, selectedId, sources, onNewPack, onSelectWorkspace
 
         <div className="sidebar-divider" style={{ margin: '16px 0' }} />
 
-        {/* Footer info */}
         <div className="sidebar-footer">
           <div className="sidebar-footer-row">
             <span className="sidebar-footer-label">Model</span>
