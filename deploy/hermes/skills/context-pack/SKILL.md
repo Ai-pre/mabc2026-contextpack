@@ -147,6 +147,17 @@ Handoff Context에서는 다음처럼 분리해 전달한다:
 #### Conflict Isolation Invariant
 동일한 사실/정책/숫자에 대해 서로 양립할 수 없는 **확정 표현**이 둘 이상 존재하면, 그 사실 전체를 `CONFLICT`로 격리한다.
 
+**확정성 수준을 먼저 비교한다.** 아래처럼 확정성 수준이 다른 두 문장은 원칙적으로 CONFLICT가 아니다.
+
+- tentative / candidate: "논의 중", "검토 중", "제안", "초안", "예정", "후보", "고려 중"
+- final / authoritative: "최종 결정", "확정", "승인", "적용 결정", "취소", "정책 결정"
+
+동일한 decision topic에서 tentative claim과 final claim이 함께 있고, final claim이 tentative 안을 명시적으로 확정·대체·취소하는 관계라면:
+- final claim을 현재 상태로 `MUST_INCLUDE`에 둘 수 있다.
+- tentative claim은 필요할 때만 과거 논의/배경으로 `USEFUL`에 남기거나 제외한다.
+- 둘을 `UNRESOLVED CONFLICTS`로 올리지 않는다.
+- 단, final 이후 다시 "재논의/재검토/결정 보류/결정 번복" 같은 명시적 reopening signal이 있으면 현재 상태가 다시 불확실할 수 있으므로 VERIFY 또는 CONFLICT 여부를 재평가한다.
+
 - 한쪽 claim을 `[MUST KNOW]`, `[CONSTRAINTS]`, `[USEFUL IF SPACE ALLOWS]`에서 확정 사실처럼 다시 쓰지 않는다.
 - 다른 섹션에서 이 주제를 언급해야 한다면 오직 "서로 충돌하는 확정 정보가 있으므로 검증 전 확정하지 말 것"처럼 **충돌 존재 자체**만 전달한다.
 - 날짜가 더 늦다는 이유만으로 자동으로 한쪽을 채택하지 않는다. 제공된 자료 안에 명시적인 권위/버전/승인 우선순위 근거가 있어야만 충돌을 해소할 수 있다.

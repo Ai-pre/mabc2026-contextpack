@@ -106,12 +106,13 @@ notion_search   / notion_get
   - TXT
   - MD
   - JSON
-- **Uploaded documents**: 자체 MCP server의 `document_search/document_get`으로 실제 동작
-- **GitHub**: Workspace-scoped `github_retrieve` MCP Tool이 GitHub API의 live read-only evidence를 한 번에 수집
-- **Jira / Slack / Notion**: 현재 demo용 mock connector
-  - Agent가 Task에 따라 필요한 Source/Tool을 선택하는 흐름 검증
+- **Uploaded documents**: `document_retrieve` + `document_search/document_get`으로 실제 동작
+- **GitHub**: Workspace-scoped `github_retrieve`가 live read-only evidence를 한 번에 수집
+- **Slack**: Workspace에 등록된 channel의 최근 메시지를 `slack_retrieve`로 live read-only 조회
+- **Notion**: Workspace에 등록된 page의 block tree를 `notion_retrieve`로 live read-only 조회
+- **Jira**: 현재 demo fixture만 제공
 
-GitHub 연결은 Workspace에 `owner/repo`를 Source로 등록하고, Hermes가 `mabc-sources` MCP의 `github_retrieve`를 우선 호출하도록 구성됩니다. 이 Tool은 recent commits/PRs, 관련 PR 변경 파일, repository tree 요약, README 맥락을 한 번에 반환해 granular tool loop를 줄입니다. 공식 GitHub Remote MCP는 정확한 세부 확인이 필요한 경우에만 opt-in fallback으로 사용할 수 있습니다. Jira/Slack/Notion도 같은 retrieve-first Connector 패턴으로 확장할 예정입니다.
+GitHub/Slack/Notion은 모두 retrieve-first Connector 패턴을 사용합니다. Agent가 granular search/get loop를 길게 반복하는 대신 Source별 aggregate retriever가 Task-relevant evidence bundle을 반환하고, ContextPack Skill이 이를 분류·압축합니다. 공식 GitHub Remote MCP는 정확한 세부 확인이 필요한 경우에만 opt-in fallback으로 남겨둡니다.
 
 ## Real Workspace Path
 
@@ -120,7 +121,9 @@ The production-oriented path is source-driven rather than demo-specific.
 ```text
 Workspace
 ├── Uploaded documents → mabc-sources / document_retrieve
-└── Connected GitHub   → mabc-sources / github_retrieve (live read-only)
+├── Connected GitHub   → mabc-sources / github_retrieve
+├── Connected Slack    → mabc-sources / slack_retrieve
+└── Connected Notion   → mabc-sources / notion_retrieve
                          ↓
                       Hermes
                          ↓
@@ -131,7 +134,14 @@ Workspace
                   Handoff Context
 ```
 
-A real workspace only exposes evidence from sources registered to that workspace. Uploaded documents use `document_retrieve`; connected GitHub repositories use the aggregate `github_retrieve` MCP Tool. The official granular GitHub Remote MCP is disabled by default and can be enabled with `GITHUB_REMOTE_MCP_ENABLED=1` as a detail fallback. Jira, Slack and Notion demo fixtures remain isolated to the demo workspace and are not treated as live integrations.
+A real workspace only exposes evidence from sources registered to that workspace. All live connectors follow a retrieve-first design: each connector returns a bounded task-relevant evidence bundle instead of forcing the model through long search/get loops.
+
+- `github_retrieve`: recent commits/PRs, selected PR changed files, repository structure and README context
+- `slack_retrieve`: metadata and recent messages from a registered Slack channel, ranked locally against the task
+- `notion_retrieve`: metadata and recursive block content from a registered Notion page, compacted to relevant blocks
+- `document_retrieve`: lexical search plus bounded reads for uploaded files
+
+The official granular GitHub Remote MCP remains an opt-in detail fallback with `GITHUB_REMOTE_MCP_ENABLED=1`; it is disabled by default. Jira remains demo-only for now.
 
 Completed analyses return an execution trace containing the exact MCP tool names that were used. The UI shows this trace so live-connector E2E runs can be verified without inferring tool usage from the generated Handoff.
 
@@ -202,15 +212,27 @@ npm --prefix frontend install
 npm --prefix frontend run build
 ```
 
-### 3. Optional: enable live GitHub MCP
+### 3. Configure live connectors
 
-Create a fine-grained GitHub token with read access only to the repositories ContextPack should inspect, then expose it to the server process:
+All credentials stay server-side and are passed to the custom `mabc-sources` MCP process through environment variables.
 
 ```bash
-export GITHUB_MCP_TOKEN=your_token_here
+export GITHUB_MCP_TOKEN=github_read_token
+export SLACK_BOT_TOKEN=xoxb-slack_bot_token
+export NOTION_API_KEY=notion_token
 ```
 
-The Docker entrypoint enables the official GitHub Remote MCP server only when this variable is present. The MCP connection is configured as read-only and uses the `repos,pull_requests` toolsets.
+GitHub should use a fine-grained token with read-only access to only the repositories ContextPack is allowed to inspect.
+
+For Slack, install a Slack app in the target workspace and give its bot the history scope required by the channel type (for example `channels:history` for public channels and `groups:history` for private channels). Add the bot to the channel before registering that channel in ContextPack. `channels:read` / `groups:read` are optional and only improve channel metadata such as the human-readable name/topic.
+
+For Notion, create a connection/integration with read-content access and grant it access to the page that will be registered in ContextPack. ContextPack uses Notion API version `2026-03-11`.
+
+The optional granular GitHub Remote MCP fallback is disabled by default. Enable it only when exact detail lookup is needed:
+
+```bash
+export GITHUB_REMOTE_MCP_ENABLED=1
+```
 
 ### 4. Run FastAPI
 
@@ -247,8 +269,10 @@ http://127.0.0.1:8000
 Current MVP limitations:
 
 - lexical retrieval only
-- GitHub live MCP uses a server-side token in the current prototype; per-user OAuth/GitHub App authorization is not implemented yet
-- Jira/Slack/Notion live accounts not yet connected
+- GitHub, Slack and Notion currently use server-side credentials; per-user OAuth/App authorization is not implemented yet
+- Slack live retrieval is channel-scoped and requires the installed bot to have access to that channel
+- Notion live retrieval currently supports registered pages; database/data-source-specific retrieval is not implemented yet
+- Jira remains demo-only
 - local single-process workspace storage
 - no OCR for image-only PDFs
 - no enterprise authentication / permission model
@@ -257,7 +281,8 @@ Current MVP limitations:
 Next steps:
 
 - embedding-based semantic retrieval
-- GitHub App / Jira / Slack / Notion live connectors
+- GitHub App/OAuth, Slack OAuth and Notion public-connection authorization
+- Jira live connector
 - GCS/DB-based persistent workspace storage
 - retrieval caching and parallel tool calls
 - downstream task-quality evaluation

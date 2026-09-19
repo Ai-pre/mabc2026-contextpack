@@ -20,7 +20,7 @@ from backend.workspace_store import SourceNotFound, WorkspaceStore, WorkspaceVal
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEMO_TOOL_NAMES = {f"{connector}_{action}" for connector in ("github", "jira", "slack", "notion")
                    for action in ("search", "get")}
-TOOL_NAMES = DEMO_TOOL_NAMES | {"demo_context_retrieve", "github_retrieve", "document_retrieve", "document_search", "document_get"}
+TOOL_NAMES = DEMO_TOOL_NAMES | {"demo_context_retrieve", "github_retrieve", "slack_retrieve", "notion_retrieve", "document_retrieve", "document_search", "document_get"}
 
 
 class DocumentMcpTests(unittest.TestCase):
@@ -123,6 +123,10 @@ class DocumentMcpTests(unittest.TestCase):
                                  {"query"})
                 self.assertEqual(set(tools["github_retrieve"].input_schema["properties"]),
                                  {"workspace_id", "query", "repository", "recent_limit"})
+                self.assertEqual(set(tools["slack_retrieve"].input_schema["properties"]),
+                                 {"workspace_id", "query", "channel", "message_limit"})
+                self.assertEqual(set(tools["notion_retrieve"].input_schema["properties"]),
+                                 {"workspace_id", "query", "page_id"})
                 self.assertEqual(set(tools["document_retrieve"].input_schema["properties"]),
                                  {"workspace_id", "query", "top_k", "max_chars_per_doc"})
                 self.assertEqual(set(tools["document_search"].input_schema["properties"]),
@@ -229,6 +233,125 @@ class DocumentMcpTests(unittest.TestCase):
         with patch.dict(os.environ, {"GITHUB_MCP_TOKEN": "test-token"}):
             with self.assertRaises(WorkspaceValidationError):
                 sources.github_retrieve(workspace_id, "x", "other/repo")
+
+    def test_live_slack_retrieve_ranks_registered_channel_messages(self):
+        workspace_id = self.workspace()
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+
+        def fake_slack(method, **params):
+            if method == "conversations.info":
+                return {
+                    "ok": True,
+                    "channel": {
+                        "id": "C012ABCDEF",
+                        "name": "payment-eng",
+                        "topic": {"value": "Payments"},
+                        "purpose": {"value": "Payment engineering"},
+                    },
+                }
+            if method == "conversations.history":
+                return {
+                    "ok": True,
+                    "messages": [
+                        {"ts": "1789830000.000001", "user": "U1",
+                         "text": "배포는 내일 진행합니다.", "reply_count": 0},
+                        {"ts": "1789830100.000002", "user": "U2",
+                         "text": "ContextPack Slack connector 배포 변경 확인 필요", "reply_count": 2},
+                    ],
+                }
+            raise AssertionError(method)
+
+        with patch.object(sources, "_slack_api", side_effect=fake_slack):
+            raw = sources.slack_retrieve(
+                workspace_id, "Slack connector 배포", "C012ABCDEF"
+            )
+
+        response = json.loads(raw)
+        self.assertEqual(response["channel"], "C012ABCDEF")
+        self.assertEqual(response["channel_name"], "payment-eng")
+        self.assertEqual(response["messages"][0]["user"], "U2")
+        self.assertIn("Slack connector", response["messages"][0]["text"])
+
+        second = self.store.create_workspace()["workspace_id"]
+        os.environ["CONTEXTPACK_WORKSPACE_ID"] = second
+        self.store.add_slack_source(second, "C099ZZZZZZ")
+        with self.assertRaises(WorkspaceValidationError):
+            sources.slack_retrieve(second, "test", "C012ABCDEF")
+
+    def test_live_notion_retrieve_reads_recursive_registered_page(self):
+        workspace_id = self.workspace()
+        page_id = "12345678-1234-1234-1234-123456789abc"
+        self.store.add_notion_source(workspace_id, page_id)
+
+        def rich(text):
+            return [{"plain_text": text}]
+
+        def fake_notion(path):
+            if path == f"/pages/{page_id}":
+                return {
+                    "id": page_id,
+                    "url": "https://www.notion.so/test",
+                    "created_time": "2026-09-01T00:00:00.000Z",
+                    "last_edited_time": "2026-09-20T00:00:00.000Z",
+                    "properties": {
+                        "title": {"type": "title", "title": rich("ContextPack Spec")}
+                    },
+                }
+            if path == f"/blocks/{page_id}/children?page_size=100":
+                return {
+                    "results": [
+                        {
+                            "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                            "type": "heading_1",
+                            "heading_1": {"rich_text": rich("Slack connector")},
+                            "has_children": False,
+                            "last_edited_time": "2026-09-20T00:00:00.000Z",
+                        },
+                        {
+                            "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                            "type": "toggle",
+                            "toggle": {"rich_text": rich("배포 체크리스트")},
+                            "has_children": True,
+                            "last_edited_time": "2026-09-20T00:00:00.000Z",
+                        },
+                    ],
+                    "has_more": False,
+                    "next_cursor": None,
+                }
+            if path == "/blocks/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/children?page_size=100":
+                return {
+                    "results": [
+                        {
+                            "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                            "type": "paragraph",
+                            "paragraph": {"rich_text": rich("Notion API key 설정 필요")},
+                            "has_children": False,
+                            "last_edited_time": "2026-09-20T00:00:00.000Z",
+                        }
+                    ],
+                    "has_more": False,
+                    "next_cursor": None,
+                }
+            raise AssertionError(path)
+
+        with patch.object(sources, "_notion_api", side_effect=fake_notion):
+            raw = sources.notion_retrieve(
+                workspace_id, "Notion API 배포", page_id
+            )
+
+        response = json.loads(raw)
+        self.assertEqual(response["page_id"], page_id)
+        self.assertEqual(response["page_title"], "ContextPack Spec")
+        self.assertEqual(response["total_blocks_read"], 3)
+        texts = [item["text"] for item in response["blocks"]]
+        self.assertIn("Notion API key 설정 필요", texts)
+
+        second = self.store.create_workspace()["workspace_id"]
+        os.environ["CONTEXTPACK_WORKSPACE_ID"] = second
+        other_page = "aaaaaaaa-1234-1234-1234-123456789abc"
+        self.store.add_notion_source(second, other_page)
+        with self.assertRaises(WorkspaceValidationError):
+            sources.notion_retrieve(second, "test", page_id)
 
     def test_multi_term_korean_english_search_and_exact_snippet_offsets(self):
         workspace_id = self.workspace()

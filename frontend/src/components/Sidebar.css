@@ -359,3 +359,17 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+
+.sidebar-connector {
+  display: grid;
+  gap: 7px;
+  margin: 10px 0 12px;
+}
+
+.sidebar-connector-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}

@@ -15,7 +15,9 @@ function readableMcpTool(name) {
 
 function AssistantCard({ message, onRetry }) {
   const { status, elapsedSec, toolCalls, skillUsed, handoff, error, errorDetail, sources = [], trace = {} } = message
-  const mcpTools = Array.isArray(trace.mcp_tools) ? trace.mcp_tools : []
+  const mcpTools = Array.isArray(trace.mcp_tools)
+    ? [...new Set(trace.mcp_tools.filter(Boolean))]
+    : []
 
   return (
     <div className={`assistant-card assistant-card--${status}`}>

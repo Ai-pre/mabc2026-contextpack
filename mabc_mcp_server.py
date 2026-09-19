@@ -13,6 +13,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from typing import Any
 
 from mcp.server import MCPServer
@@ -84,10 +85,10 @@ _NOTION_SECTIONS = _split_notion_sections(_NOTION)
 # tool 정의
 # ---------------------------------------------------------------------------
 
-server = MCPServer("mabc-sources", "1.0.0",
+server = MCPServer("mabc-sources", "1.1.0",
                    description="ContextPack workspace source connector. " +
-                   "업로드 문서와 demo workspace의 GitHub, Jira, Slack, Notion 데이터를 제공한다. " +
-                   "Solar Agent가 Role+Task에 따라 필요한 tool을 선택하여 호출한다.")
+                   "업로드 문서와 live GitHub/Slack/Notion Source, demo fixture를 제공한다. " +
+                   "Solar Agent가 Role+Task에 따라 필요한 retrieve tool을 선택하여 호출한다.")
 
 
 def _tool(name: str, description: str, fn):
@@ -145,7 +146,7 @@ def _registered_github_repositories(workspace_id: str) -> list[str]:
 
 def _query_terms(query: str) -> list[str]:
     return list(dict.fromkeys(
-        term for term in re.findall(r"[A-Za-z0-9_.-]+", query.casefold())
+        term for term in re.findall(r"[\w.-]+", query.casefold(), flags=re.UNICODE)
         if len(term) >= 2
     ))
 
@@ -368,6 +369,384 @@ def github_retrieve(
         "relevant_recent_pull_requests": compact_pulls,
         "tree_summary": tree_summary,
         "readme_preview": readme,
+        "cache_reused": cache_reused,
+    }, ensure_ascii=False, separators=(",", ":"))
+
+
+# --- Live Slack connector helpers ---
+
+_SLACK_LIVE_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+
+
+def _slack_token() -> str:
+    token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
+    if not token or token.startswith("${"):
+        raise WorkspaceValidationError("Live Slack is not configured on this server.")
+    return token
+
+
+def _slack_api(method: str, **params: Any) -> dict[str, Any]:
+    encoded = urllib.parse.urlencode({
+        key: str(value).lower() if isinstance(value, bool) else value
+        for key, value in params.items()
+        if value is not None
+    })
+    url = f"https://slack.com/api/{method}"
+    if encoded:
+        url += "?" + encoded
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {_slack_token()}",
+            "Accept": "application/json",
+            "User-Agent": "ContextPack/0.1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise WorkspaceValidationError(f"Slack API returned HTTP {exc.code}.") from exc
+    except (urllib.error.URLError, TimeoutError, ValueError, UnicodeError) as exc:
+        raise WorkspaceValidationError(f"Slack API request failed: {exc}") from exc
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        error = payload.get("error", "unknown_error") if isinstance(payload, dict) else "invalid_response"
+        raise WorkspaceValidationError(f"Slack API error: {error}")
+    return payload
+
+
+def _registered_slack_channels(workspace_id: str) -> list[str]:
+    workspace = _STORE.get_workspace(workspace_id)
+    return [
+        source["channel"]
+        for source in workspace["sources"]
+        if source.get("source_type") == "connector"
+        and source.get("connector") == "slack"
+        and source.get("channel")
+    ]
+
+
+def _slack_iso_timestamp(ts: str) -> str | None:
+    try:
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+@server.tool()
+def slack_retrieve(
+    workspace_id: str,
+    query: str,
+    channel: str = "",
+    message_limit: int = 50,
+) -> str:
+    """Retrieve task-relevant live Slack messages from one connected channel.
+
+    The tool reads channel metadata and recent history once, ranks messages
+    locally against the task query, and returns a compact evidence bundle.
+    """
+    _require_workspace(workspace_id)
+    if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
+        raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
+    _integer(message_limit, "message_limit", 1, 100)
+
+    channels = _registered_slack_channels(workspace_id)
+    if not channels:
+        raise WorkspaceValidationError("No Slack channel is connected to this workspace.")
+    if channel:
+        normalized = WorkspaceStore._slack_channel(channel)
+        match = next((item for item in channels if item == normalized), None)
+        if not match:
+            raise WorkspaceValidationError("Requested Slack channel is not connected to this workspace.")
+        channel = match
+    elif len(channels) == 1:
+        channel = channels[0]
+    else:
+        raise WorkspaceValidationError("channel is required when multiple Slack channels are connected.")
+
+    cache_key = (workspace_id, channel)
+    snapshot = _SLACK_LIVE_CACHE.get(cache_key)
+    cache_reused = snapshot is not None
+
+    if snapshot is None:
+        def fetch_info():
+            try:
+                return _slack_api("conversations.info", channel=channel)
+            except WorkspaceValidationError:
+                # Channel metadata is helpful but not required for evidence retrieval.
+                # This keeps the connector usable with history-only read scopes.
+                return {}
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            info_future = pool.submit(fetch_info)
+            history_future = pool.submit(
+                _slack_api, "conversations.history", channel=channel, limit=message_limit
+            )
+            info = info_future.result()
+            history = history_future.result()
+        conversation = info.get("channel", {}) if isinstance(info, dict) else {}
+        messages = history.get("messages", []) if isinstance(history, dict) else []
+        snapshot = {
+            "conversation": conversation if isinstance(conversation, dict) else {},
+            "messages": messages if isinstance(messages, list) else [],
+        }
+        _SLACK_LIVE_CACHE[cache_key] = snapshot
+
+    terms = _query_terms(query)
+    ranked = []
+    for message in snapshot["messages"]:
+        if not isinstance(message, dict):
+            continue
+        text = message.get("text") or ""
+        subtype = message.get("subtype")
+        if subtype in {"channel_join", "channel_leave"} and not text:
+            continue
+        score = _text_score(text, terms)
+        ranked.append({
+            "ts": message.get("ts"),
+            "datetime": _slack_iso_timestamp(message.get("ts")),
+            "user": message.get("user") or message.get("bot_id") or "",
+            "text": text[:1800],
+            "thread_ts": message.get("thread_ts"),
+            "reply_count": message.get("reply_count", 0),
+            "_score": score,
+        })
+
+    ranked.sort(
+        key=lambda item: (item["_score"], item.get("ts") or ""),
+        reverse=True,
+    )
+    selected = ranked[:20]
+    selected = [{k: v for k, v in item.items() if k != "_score"} for item in selected]
+
+    conversation = snapshot["conversation"]
+    return json.dumps({
+        "workspace_id": workspace_id,
+        "channel": channel,
+        "channel_name": conversation.get("name"),
+        "channel_topic": ((conversation.get("topic") or {}).get("value")),
+        "channel_purpose": ((conversation.get("purpose") or {}).get("value")),
+        "query": query,
+        "messages": selected,
+        "history_count": len(snapshot["messages"]),
+        "cache_reused": cache_reused,
+    }, ensure_ascii=False, separators=(",", ":"))
+
+
+# --- Live Notion connector helpers ---
+
+_NOTION_LIVE_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+_NOTION_VERSION = "2026-03-11"
+
+
+def _notion_token() -> str:
+    token = os.environ.get("NOTION_API_KEY", "").strip()
+    if not token or token.startswith("${"):
+        raise WorkspaceValidationError("Live Notion is not configured on this server.")
+    return token
+
+
+def _notion_api(path: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        "https://api.notion.com/v1" + path,
+        headers={
+            "Authorization": f"Bearer {_notion_token()}",
+            "Notion-Version": _NOTION_VERSION,
+            "Accept": "application/json",
+            "User-Agent": "ContextPack/0.1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("message", "")
+        except Exception:
+            detail = ""
+        message = f"Notion API returned HTTP {exc.code}"
+        if detail:
+            message += f": {detail}"
+        raise WorkspaceValidationError(message) from exc
+    except (urllib.error.URLError, TimeoutError, ValueError, UnicodeError) as exc:
+        raise WorkspaceValidationError(f"Notion API request failed: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise WorkspaceValidationError("Notion API returned an invalid response.")
+    return payload
+
+
+def _registered_notion_pages(workspace_id: str) -> list[str]:
+    workspace = _STORE.get_workspace(workspace_id)
+    return [
+        source["page_id"]
+        for source in workspace["sources"]
+        if source.get("source_type") == "connector"
+        and source.get("connector") == "notion"
+        and source.get("page_id")
+    ]
+
+
+def _rich_text_plain(items: Any) -> str:
+    if not isinstance(items, list):
+        return ""
+    return "".join(
+        item.get("plain_text") or ""
+        for item in items
+        if isinstance(item, dict)
+    ).strip()
+
+
+def _notion_page_title(page: dict[str, Any]) -> str:
+    properties = page.get("properties", {})
+    if isinstance(properties, dict):
+        for prop in properties.values():
+            if isinstance(prop, dict) and prop.get("type") == "title":
+                title = _rich_text_plain(prop.get("title"))
+                if title:
+                    return title
+    return "Untitled"
+
+
+def _notion_block_text(block: dict[str, Any]) -> str:
+    block_type = block.get("type")
+    value = block.get(block_type, {}) if isinstance(block_type, str) else {}
+    if not isinstance(value, dict):
+        return ""
+    if block_type in {"child_page", "child_database"}:
+        return str(value.get("title") or "").strip()
+    if block_type == "table_row":
+        cells = value.get("cells", [])
+        if isinstance(cells, list):
+            return " | ".join(_rich_text_plain(cell) for cell in cells).strip(" |")
+    for field in ("rich_text", "caption"):
+        text = _rich_text_plain(value.get(field))
+        if text:
+            return text
+    return ""
+
+
+def _notion_children(block_id: str, *, max_blocks: int = 220, max_depth: int = 4) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+
+    def walk(parent_id: str, depth: int) -> None:
+        if depth > max_depth or len(records) >= max_blocks:
+            return
+        cursor: str | None = None
+        while len(records) < max_blocks:
+            query = f"/blocks/{urllib.parse.quote(parent_id)}/children?page_size=100"
+            if cursor:
+                query += "&start_cursor=" + urllib.parse.quote(cursor)
+            payload = _notion_api(query)
+            results = payload.get("results", [])
+            if not isinstance(results, list):
+                return
+            for block in results:
+                if not isinstance(block, dict):
+                    continue
+                records.append({
+                    "id": block.get("id"),
+                    "type": block.get("type"),
+                    "text": _notion_block_text(block),
+                    "last_edited_time": block.get("last_edited_time"),
+                    "depth": depth,
+                })
+                if block.get("has_children") and len(records) < max_blocks:
+                    block_id_value = block.get("id")
+                    if isinstance(block_id_value, str):
+                        walk(block_id_value, depth + 1)
+                if len(records) >= max_blocks:
+                    return
+            if not payload.get("has_more") or not payload.get("next_cursor"):
+                return
+            cursor = payload.get("next_cursor")
+
+    walk(block_id, 0)
+    return records
+
+
+@server.tool()
+def notion_retrieve(
+    workspace_id: str,
+    query: str,
+    page_id: str = "",
+) -> str:
+    """Retrieve compact live Notion evidence from one connected page.
+
+    The tool reads page metadata and recursive block content, then performs
+    local task-conditioned ranking so the model receives a bounded evidence
+    bundle rather than the complete page tree.
+    """
+    _require_workspace(workspace_id)
+    if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
+        raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
+
+    pages = _registered_notion_pages(workspace_id)
+    if not pages:
+        raise WorkspaceValidationError("No Notion page is connected to this workspace.")
+    if page_id:
+        normalized = WorkspaceStore._notion_page_id(page_id)
+        match = next((item for item in pages if item.casefold() == normalized.casefold()), None)
+        if not match:
+            raise WorkspaceValidationError("Requested Notion page is not connected to this workspace.")
+        page_id = match
+    elif len(pages) == 1:
+        page_id = pages[0]
+    else:
+        raise WorkspaceValidationError("page_id is required when multiple Notion pages are connected.")
+
+    cache_key = (workspace_id, page_id.casefold())
+    snapshot = _NOTION_LIVE_CACHE.get(cache_key)
+    cache_reused = snapshot is not None
+
+    if snapshot is None:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            page_future = pool.submit(_notion_api, f"/pages/{urllib.parse.quote(page_id)}")
+            blocks_future = pool.submit(_notion_children, page_id)
+            page = page_future.result()
+            blocks = blocks_future.result()
+        snapshot = {"page": page, "blocks": blocks}
+        _NOTION_LIVE_CACHE[cache_key] = snapshot
+
+    terms = _query_terms(query)
+    blocks = snapshot["blocks"]
+    ranked = []
+    for index, block in enumerate(blocks):
+        text = block.get("text") or ""
+        if not text:
+            continue
+        score = _text_score(text, terms)
+        ranked.append({**block, "_score": score, "_index": index})
+
+    ranked.sort(key=lambda item: (item["_score"], -item["_index"]), reverse=True)
+    selected_indexes = {item["_index"] for item in ranked[:18]}
+    # Keep a little leading context even when lexical terms are sparse.
+    selected_indexes.update(
+        index for index, block in enumerate(blocks[:8])
+        if block.get("text")
+    )
+    selected = [
+        {
+            "id": block.get("id"),
+            "type": block.get("type"),
+            "text": block.get("text"),
+            "last_edited_time": block.get("last_edited_time"),
+            "depth": block.get("depth"),
+        }
+        for index, block in enumerate(blocks)
+        if index in selected_indexes and block.get("text")
+    ][:24]
+
+    page = snapshot["page"]
+    return json.dumps({
+        "workspace_id": workspace_id,
+        "page_id": page_id,
+        "page_title": _notion_page_title(page),
+        "page_url": page.get("url"),
+        "created_time": page.get("created_time"),
+        "last_edited_time": page.get("last_edited_time"),
+        "query": query,
+        "blocks": selected,
+        "total_blocks_read": len(blocks),
         "cache_reused": cache_reused,
     }, ensure_ascii=False, separators=(",", ":"))
 

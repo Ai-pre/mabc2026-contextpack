@@ -84,8 +84,88 @@ class AnalysisTests(unittest.TestCase):
         prompt = run.call_args.args[0]
         self.assertIn("Ai-pre/mabc2026-contextpack", prompt)
         self.assertIn("github_retrieve", prompt)
-        self.assertIn("aggregate retrieve", prompt)
-        self.assertIn("다른 repository를 검색하거나 근거로 사용하지 않는다", prompt)
+        self.assertIn("aggregate", prompt)
+        self.assertIn("다른 repository를 근거로 사용하지 않는다", prompt)
+
+    def test_slack_only_workspace_forces_one_retrieve_then_stop(self):
+        workspace_id = self.store.create_workspace("Slack only")["workspace_id"]
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+        with patch.object(api.runner, "run", return_value=self.result) as run:
+            response = self.client.post("/analyze", json={
+                "workspace_id": workspace_id,
+                "role": "Backend Developer",
+                "task": "Summarize recent project decisions",
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        prompt = run.call_args.args[0]
+        self.assertIn("이 Workspace는 Slack-only다", prompt)
+        self.assertIn("slack_retrieve를 필요한 channel당 정확히 1회", prompt)
+        self.assertIn("다른 MCP tool을 탐색하거나 재호출하지 않는다", prompt)
+        self.assertNotIn("demo_context_retrieve", prompt)
+        self.assertNotIn("slack_search/get", prompt)
+
+    def test_connected_slack_and_notion_sources_are_scoped_in_agent_prompt(self):
+        workspace_id = self.store.create_workspace("Connector test")["workspace_id"]
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+        self.store.add_notion_source(
+            workspace_id,
+            "12345678-1234-1234-1234-123456789abc",
+        )
+        with patch.object(api.runner, "run", return_value=self.result) as run:
+            response = self.client.post("/analyze", json={
+                "workspace_id": workspace_id,
+                "role": "Developer",
+                "task": "Review the rollout discussion and spec",
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        prompt = run.call_args.args[0]
+        self.assertIn("C012ABCDEF", prompt)
+        self.assertIn("12345678-1234-1234-1234-123456789abc", prompt)
+        self.assertIn("slack_retrieve", prompt)
+        self.assertIn("notion_retrieve", prompt)
+        self.assertIn("등록되지 않은 채널", prompt)
+        self.assertIn("등록되지 않은 페이지", prompt)
+
+    def test_runtime_prompt_distinguishes_tentative_from_final_decisions(self):
+        workspace_id = self.store.create_workspace("Slack finality")["workspace_id"]
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+        with patch.object(api.runner, "run", return_value=self.result) as run:
+            response = self.client.post("/analyze", json={
+                "workspace_id": workspace_id,
+                "role": "Backend Developer",
+                "task": "Summarize deployment decisions",
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        prompt = run.call_args.args[0]
+        self.assertIn("논의 중/검토 중/제안/초안/예정/후보", prompt)
+        self.assertIn("최종 결정/확정/승인/적용 결정/취소", prompt)
+        self.assertIn("둘은 CONFLICT가 아니다", prompt)
+        self.assertIn("reopening signal", prompt)
+
+    def test_mcp_tool_trace_prefers_full_identifier_from_source_map(self):
+        stdout = """⚡ mcp__mabc
+[TASK]
+- x
+[MUST KNOW]
+- y
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__slack_retrieve(workspace_id=ws_x, channel=C012ABCDEF)
+"""
+        self.assertEqual(CliHermesRunner._count_mcp_calls(stdout), 1)
+        self.assertEqual(
+            CliHermesRunner._extract_mcp_tools(stdout),
+            ["mcp__mabc_sources__slack_retrieve"],
+        )
 
     def test_invalid_or_empty_workspace_never_launches_runner(self):
         empty = self.store.create_workspace()["workspace_id"]
