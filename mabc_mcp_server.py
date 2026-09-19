@@ -12,6 +12,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from mcp.server import MCPServer
@@ -96,6 +97,8 @@ def _tool(name: str, description: str, fn):
 
 # --- Live GitHub connector helpers ---
 
+_GITHUB_LIVE_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+
 def _github_token() -> str:
     token = os.environ.get("GITHUB_MCP_TOKEN", "").strip()
     if not token or token.startswith("${"):
@@ -161,11 +164,10 @@ def github_retrieve(
 ) -> str:
     """Retrieve compact live GitHub evidence in one MCP call.
 
-    This is the preferred fast path for connected GitHub repositories. It
-    aggregates repository metadata, recent commits, recent pull requests,
-    changed files for the most relevant PRs, README context and a compact tree
-    summary. Use granular github-live tools only when one exact detail is still
-    missing after this result.
+    Preferred fast path for connected repositories. One call gathers repository
+    metadata, recent commits/PRs, selected PR changed files, README context and
+    repository structure. Repeated calls in the same Hermes session reuse the
+    cached GitHub snapshot instead of repeating network requests.
     """
     _require_workspace(workspace_id)
     if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
@@ -189,20 +191,101 @@ def github_retrieve(
 
     owner, repo = repository.split("/", 1)
     base = f"/repos/{urllib.parse.quote(owner)}/{urllib.parse.quote(repo)}"
-    metadata = _github_api(base)
-    default_branch = metadata.get("default_branch") or "main"
+    cache_key = (workspace_id, repository.casefold())
+    snapshot = _GITHUB_LIVE_CACHE.get(cache_key)
 
-    commits = _github_api(
-        f"{base}/commits?sha={urllib.parse.quote(default_branch)}&per_page={recent_limit}"
-    )
-    pulls = _github_api(
-        f"{base}/pulls?state=all&sort=updated&direction=desc&per_page={recent_limit}"
-    )
+    if snapshot is None:
+        metadata = _github_api(base)
+        default_branch = metadata.get("default_branch") or "main"
+
+        def fetch_commits():
+            return _github_api(
+                f"{base}/commits?sha={urllib.parse.quote(default_branch)}&per_page={recent_limit}"
+            )
+
+        def fetch_pulls():
+            return _github_api(
+                f"{base}/pulls?state=all&sort=updated&direction=desc&per_page={recent_limit}"
+            )
+
+        def fetch_readme():
+            try:
+                return _github_api(f"{base}/readme")
+            except WorkspaceValidationError:
+                return {}
+
+        def fetch_tree():
+            try:
+                return _github_api(
+                    f"{base}/git/trees/{urllib.parse.quote(default_branch)}?recursive=1"
+                )
+            except WorkspaceValidationError:
+                return {}
+
+        # These requests are independent once the default branch is known.
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            commits_future = pool.submit(fetch_commits)
+            pulls_future = pool.submit(fetch_pulls)
+            readme_future = pool.submit(fetch_readme)
+            tree_future = pool.submit(fetch_tree)
+            commits = commits_future.result()
+            pulls = pulls_future.result()
+            readme_obj = readme_future.result()
+            tree = tree_future.result()
+
+        pull_files: dict[int, list[dict[str, Any]]] = {}
+        pull_numbers = [
+            item.get("number")
+            for item in (pulls if isinstance(pulls, list) else [])[:3]
+            if isinstance(item.get("number"), int)
+        ]
+
+        def fetch_pr_files(number: int):
+            try:
+                return number, _github_api(f"{base}/pulls/{number}/files?per_page=50")
+            except WorkspaceValidationError:
+                return number, []
+
+        if pull_numbers:
+            with ThreadPoolExecutor(max_workers=min(3, len(pull_numbers))) as pool:
+                for number, files in pool.map(fetch_pr_files, pull_numbers):
+                    pull_files[number] = files if isinstance(files, list) else []
+
+        readme = ""
+        if isinstance(readme_obj, dict) and readme_obj.get("content"):
+            try:
+                readme = base64.b64decode(readme_obj["content"]).decode(
+                    "utf-8", errors="replace"
+                )[:1800]
+            except Exception:
+                readme = ""
+
+        entries = tree.get("tree", []) if isinstance(tree, dict) else []
+        paths = [entry.get("path", "") for entry in entries if entry.get("path")]
+
+        snapshot = {
+            "metadata": metadata,
+            "default_branch": default_branch,
+            "commits": commits if isinstance(commits, list) else [],
+            "pulls": pulls if isinstance(pulls, list) else [],
+            "pull_files": pull_files,
+            "readme": readme,
+            "paths": paths,
+        }
+        _GITHUB_LIVE_CACHE[cache_key] = snapshot
+
+    metadata = snapshot["metadata"]
+    default_branch = snapshot["default_branch"]
+    commits = snapshot["commits"]
+    pulls = snapshot["pulls"]
+    pull_files = snapshot["pull_files"]
+    readme = snapshot["readme"]
+    paths = snapshot["paths"]
 
     terms = _query_terms(query)
 
     compact_commits = []
-    for item in commits if isinstance(commits, list) else []:
+    for item in commits:
         commit = item.get("commit", {}) or {}
         message = (commit.get("message") or "").split("\n", 1)[0]
         compact_commits.append({
@@ -217,79 +300,58 @@ def github_retrieve(
     )
     compact_commits = [
         {k: v for k, v in item.items() if k != "_score"}
-        for item in compact_commits[:recent_limit]
+        for item in compact_commits[:6]
     ]
 
     compact_pulls = []
-    for item in pulls if isinstance(pulls, list) else []:
+    for item in pulls:
         title = item.get("title") or ""
         body = item.get("body") or ""
         combined = f"{title}\n{body}"
+        number = item.get("number")
+        files = pull_files.get(number, []) if isinstance(number, int) else []
         compact_pulls.append({
-            "number": item.get("number"),
+            "number": number,
             "state": item.get("state"),
             "draft": bool(item.get("draft")),
             "updated_at": item.get("updated_at"),
             "merged_at": item.get("merged_at"),
             "title": title,
-            "body_preview": body[:700] if body else "",
+            "body_preview": body[:450] if body else "",
+            "files": [
+                {
+                    "filename": file.get("filename"),
+                    "status": file.get("status"),
+                    "additions": file.get("additions"),
+                    "deletions": file.get("deletions"),
+                }
+                for file in files[:20]
+            ],
             "_score": _text_score(combined, terms),
         })
     compact_pulls.sort(
         key=lambda item: (item["_score"], item.get("updated_at") or ""),
         reverse=True,
     )
-
-    relevant_prs = compact_pulls[:min(3, len(compact_pulls))]
-    for pr in relevant_prs[:2]:
-        number = pr.get("number")
-        if not isinstance(number, int):
-            continue
-        files = _github_api(f"{base}/pulls/{number}/files?per_page=50")
-        pr["files"] = [
-            {
-                "filename": file.get("filename"),
-                "status": file.get("status"),
-                "additions": file.get("additions"),
-                "deletions": file.get("deletions"),
-            }
-            for file in (files if isinstance(files, list) else [])[:30]
-        ]
     compact_pulls = [
         {k: v for k, v in item.items() if k != "_score"}
-        for item in relevant_prs
+        for item in compact_pulls[:2]
     ]
 
-    readme = ""
-    try:
-        readme_obj = _github_api(f"{base}/readme")
-        if isinstance(readme_obj, dict) and readme_obj.get("content"):
-            readme = base64.b64decode(readme_obj["content"]).decode("utf-8", errors="replace")[:3000]
-    except WorkspaceValidationError:
-        readme = ""
+    scored_paths = [
+        (_text_score(path, terms), path)
+        for path in paths
+        if terms and _text_score(path, terms) > 0
+    ]
+    scored_paths.sort(key=lambda item: (-item[0], item[1]))
 
-    tree_summary = {"root_files": [], "top_level_dirs": [], "query_paths": []}
-    try:
-        tree = _github_api(
-            f"{base}/git/trees/{urllib.parse.quote(default_branch)}?recursive=1"
-        )
-        entries = tree.get("tree", []) if isinstance(tree, dict) else []
-        paths = [entry.get("path", "") for entry in entries if entry.get("path")]
-        tree_summary["root_files"] = sorted(
-            path for path in paths if "/" not in path
-        )[:40]
-        tree_summary["top_level_dirs"] = sorted({
+    tree_summary = {
+        "root_files": sorted(path for path in paths if "/" not in path)[:20],
+        "top_level_dirs": sorted({
             path.split("/", 1)[0] for path in paths if "/" in path
-        })[:40]
-        scored_paths = [
-            (_text_score(path, terms), path)
-            for path in paths
-            if terms and _text_score(path, terms) > 0
-        ]
-        scored_paths.sort(key=lambda item: (-item[0], item[1]))
-        tree_summary["query_paths"] = [path for _, path in scored_paths[:30]]
-    except WorkspaceValidationError:
-        pass
+        })[:20],
+        "query_paths": [path for _, path in scored_paths[:15]],
+    }
 
     return json.dumps({
         "workspace_id": workspace_id,
@@ -305,6 +367,7 @@ def github_retrieve(
         "relevant_recent_pull_requests": compact_pulls,
         "tree_summary": tree_summary,
         "readme_preview": readme,
+        "cache_reused": cache_key in _GITHUB_LIVE_CACHE,
     }, ensure_ascii=False, separators=(",", ":"))
 
 
