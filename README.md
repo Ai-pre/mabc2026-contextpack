@@ -106,12 +106,13 @@ notion_search   / notion_get
   - TXT
   - MD
   - JSON
-- **Uploaded documents**: 자체 MCP server의 `document_search/document_get`으로 실제 동작
-- **GitHub**: Workspace-scoped `github_retrieve` MCP Tool이 GitHub API의 live read-only evidence를 한 번에 수집
-- **Jira / Slack / Notion**: 현재 demo용 mock connector
-  - Agent가 Task에 따라 필요한 Source/Tool을 선택하는 흐름 검증
+- **Uploaded documents**: `document_retrieve` + `document_search/document_get`으로 실제 동작
+- **GitHub**: Workspace-scoped `github_retrieve`가 live read-only evidence를 한 번에 수집
+- **Slack**: Workspace에 등록된 channel의 최근 메시지를 `slack_retrieve`로 live read-only 조회
+- **Notion**: Workspace에 등록된 page의 block tree를 `notion_retrieve`로 live read-only 조회
+- **Jira**: 현재 demo fixture만 제공
 
-GitHub 연결은 Workspace에 `owner/repo`를 Source로 등록하고, Hermes가 `mabc-sources` MCP의 `github_retrieve`를 우선 호출하도록 구성됩니다. 이 Tool은 recent commits/PRs, 관련 PR 변경 파일, repository tree 요약, README 맥락을 한 번에 반환해 granular tool loop를 줄입니다. 공식 GitHub Remote MCP는 정확한 세부 확인이 필요한 경우에만 opt-in fallback으로 사용할 수 있습니다. Jira/Slack/Notion도 같은 retrieve-first Connector 패턴으로 확장할 예정입니다.
+GitHub/Slack/Notion은 모두 retrieve-first Connector 패턴을 사용합니다. Agent가 granular search/get loop를 길게 반복하는 대신 Source별 aggregate retriever가 Task-relevant evidence bundle을 반환하고, ContextPack Skill이 이를 분류·압축합니다. 공식 GitHub Remote MCP는 정확한 세부 확인이 필요한 경우에만 opt-in fallback으로 남겨둡니다.
 
 ## Real Workspace Path
 
