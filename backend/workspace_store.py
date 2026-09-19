@@ -347,8 +347,11 @@ class WorkspaceStore:
         with self._lock:
             manifest = self.get_workspace(workspace_id)
             source = self._registered_source(manifest, source_id)
-            if source.get("source_type") == "demo":
+            source_type = source.get("source_type")
+            if source_type == "demo":
                 raise WorkspaceValidationError("Demo fixture sources cannot be removed.")
+            if source_type not in {"upload", "connector"}:
+                raise WorkspaceValidationError("Unsupported source type.")
             if not isinstance(source_id, str) or not _SOURCE_ID.fullmatch(source_id):
                 raise WorkspaceValidationError("Invalid source ID.")
 
@@ -356,10 +359,8 @@ class WorkspaceStore:
             manifest["updated_at"] = _now()
             self._write_manifest(manifest)
 
-            if source.get("source_type") == "connector":
+            if source_type == "connector":
                 return source
-            if source.get("source_type") != "upload":
-                raise WorkspaceValidationError("Unsupported source type.")
 
             filename = self._filename(source.get("original_filename"))
             directory = self._workspace_path(workspace_id)
