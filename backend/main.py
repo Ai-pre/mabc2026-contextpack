@@ -196,9 +196,10 @@ def build_agent_prompt(req, workspace=None):
         required_retrieval = """
 ## 필수 Source 조회
 
-- 최종 답변 전에 반드시 실제 MCP Source Tool을 호출한다. prompt에 적힌 예시/설명만 보고 답하지 않는다.
+- 최종 답변 전에 반드시 Hermes가 실제로 노출한 MCP source tool을 호출한다. prompt에 적힌 예시/설명만 보고 답하지 않는다.
+- `mabc-sources`는 서버 이름이지 호출할 tool 이름이 아니다. 서버 이름 자체를 tool로 호출하지 않는다.
 - 이 demo는 GitHub/Jira/Slack/Notion 간 STALE/CONFLICT/MISSING을 검증하는 고정 fixture다.
-- 첫 tool-call 단계에서 github_search, jira_search, slack_search, notion_search를 가능한 한 **한 batch로 병렬 호출**한다.
+- 첫 tool-call 단계에서 실제 노출된 github_search, jira_search, slack_search, notion_search 도구를 가능한 한 **한 batch로 병렬 호출**한다.
 - 검색 결과만으로 근거가 충분하면 즉시 Handoff를 작성한다. 세부 원문이 꼭 필요할 때만 필요한 get 도구를 추가 호출한다.
 - 실제 MCP tool result를 하나도 얻지 못했다면 Handoff를 작성하지 말고 필요한 Source 조회를 먼저 수행한다.
 """
@@ -223,7 +224,7 @@ def build_agent_prompt(req, workspace=None):
         required_retrieval = """
 ## 필수 Source 조회
 
-- 최종 답변 전에 반드시 document_retrieve(workspace_id, query)를 최소 1회 호출한다.
+- 최종 답변 전에 반드시 Hermes가 노출한 document_retrieve 도구를 최소 1회 호출한다.
 - retrieve 결과가 충분하면 즉시 Handoff를 작성한다.
 - 결과가 0건이거나 핵심 근거가 부족할 때만 검색어를 최대 한 번 바꿔 재조회한다.
 - 실제 document tool result 없이 prompt의 메타정보만으로 Handoff를 만들지 않는다.
@@ -268,8 +269,9 @@ def build_agent_prompt(req, workspace=None):
 
 ## 탐색 규칙
 
-- 현재 작업에 필요한 정보는 등록된 Source에 대응하는 MCP tool에서만 찾는다.
-- 일반 웹 검색, 임의의 filesystem 탐색 등 등록되지 않은 경로를 근거 수집에 사용하지 않는다.
+- 현재 작업에 필요한 정보는 등록된 Source에 대응하는 MCP source tool에서만 찾는다.
+- terminal, search_files, read_file, web_search 등 Hermes의 일반 도구는 근거 수집에 사용하지 않는다. 이들은 등록 Source가 아니다.
+- MCP 서버 이름 자체(mabc-sources, github-live)를 tool 이름으로 호출하지 않는다. Hermes가 실제로 노출한 개별 source tool을 사용한다.
 - **Stop early:** 충분한 Evidence를 확보한 뒤 "더 확실히 하기 위해" 같은 이유로 같은 사실을 재검색하지 않는다.
 - 업로드 문서만 있는 Workspace에서는 보통 1회 document_retrieve로 끝내고, 부족할 때만 1회의 보충 조회를 허용한다.
 - live GitHub가 연결된 경우에도 Task에 필요한 repository 근거만 조회하고, 이미 답할 수 있으면 추가 PR/코드 탐색을 중단한다.
