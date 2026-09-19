@@ -151,7 +151,7 @@ class AnalyzeRequest(BaseModel):
 class TraceResponse(BaseModel):
     skill_used: bool
     mcp_tool_calls: int
-    mcp_tools: list[str] = []
+    mcp_tools: list[str] = Field(default_factory=list)
 
 
 class AnalyzeResponse(BaseModel):
