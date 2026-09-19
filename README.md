@@ -120,7 +120,9 @@ The production-oriented path is source-driven rather than demo-specific.
 ```text
 Workspace
 ├── Uploaded documents → mabc-sources / document_retrieve
-└── Connected GitHub   → mabc-sources / github_retrieve (live read-only)
+├── Connected GitHub   → mabc-sources / github_retrieve
+├── Connected Slack    → mabc-sources / slack_retrieve
+└── Connected Notion   → mabc-sources / notion_retrieve
                          ↓
                       Hermes
                          ↓
@@ -131,7 +133,14 @@ Workspace
                   Handoff Context
 ```
 
-A real workspace only exposes evidence from sources registered to that workspace. Uploaded documents use `document_retrieve`; connected GitHub repositories use the aggregate `github_retrieve` MCP Tool. The official granular GitHub Remote MCP is disabled by default and can be enabled with `GITHUB_REMOTE_MCP_ENABLED=1` as a detail fallback. Jira, Slack and Notion demo fixtures remain isolated to the demo workspace and are not treated as live integrations.
+A real workspace only exposes evidence from sources registered to that workspace. All live connectors follow a retrieve-first design: each connector returns a bounded task-relevant evidence bundle instead of forcing the model through long search/get loops.
+
+- `github_retrieve`: recent commits/PRs, selected PR changed files, repository structure and README context
+- `slack_retrieve`: metadata and recent messages from a registered Slack channel, ranked locally against the task
+- `notion_retrieve`: metadata and recursive block content from a registered Notion page, compacted to relevant blocks
+- `document_retrieve`: lexical search plus bounded reads for uploaded files
+
+The official granular GitHub Remote MCP remains an opt-in detail fallback with `GITHUB_REMOTE_MCP_ENABLED=1`; it is disabled by default. Jira remains demo-only for now.
 
 Completed analyses return an execution trace containing the exact MCP tool names that were used. The UI shows this trace so live-connector E2E runs can be verified without inferring tool usage from the generated Handoff.
 
@@ -202,15 +211,27 @@ npm --prefix frontend install
 npm --prefix frontend run build
 ```
 
-### 3. Optional: enable live GitHub MCP
+### 3. Configure live connectors
 
-Create a fine-grained GitHub token with read access only to the repositories ContextPack should inspect, then expose it to the server process:
+All credentials stay server-side and are passed to the custom `mabc-sources` MCP process through environment variables.
 
 ```bash
-export GITHUB_MCP_TOKEN=your_token_here
+export GITHUB_MCP_TOKEN=github_read_token
+export SLACK_BOT_TOKEN=xoxb-slack_bot_token
+export NOTION_API_KEY=notion_token
 ```
 
-The Docker entrypoint enables the official GitHub Remote MCP server only when this variable is present. The MCP connection is configured as read-only and uses the `repos,pull_requests` toolsets.
+GitHub should use a fine-grained token with read-only access to only the repositories ContextPack is allowed to inspect.
+
+For Slack, install a Slack app in the target workspace and give its bot the history scope required by the channel type (for example `channels:history` for public channels and `groups:history` for private channels). Add the bot to the channel before registering that channel in ContextPack.
+
+For Notion, create a connection/integration with read-content access and grant it access to the page that will be registered in ContextPack. ContextPack uses Notion API version `2026-03-11`.
+
+The optional granular GitHub Remote MCP fallback is disabled by default. Enable it only when exact detail lookup is needed:
+
+```bash
+export GITHUB_REMOTE_MCP_ENABLED=1
+```
 
 ### 4. Run FastAPI
 
@@ -247,8 +268,10 @@ http://127.0.0.1:8000
 Current MVP limitations:
 
 - lexical retrieval only
-- GitHub live MCP uses a server-side token in the current prototype; per-user OAuth/GitHub App authorization is not implemented yet
-- Jira/Slack/Notion live accounts not yet connected
+- GitHub, Slack and Notion currently use server-side credentials; per-user OAuth/App authorization is not implemented yet
+- Slack live retrieval is channel-scoped and requires the installed bot to have access to that channel
+- Notion live retrieval currently supports registered pages; database/data-source-specific retrieval is not implemented yet
+- Jira remains demo-only
 - local single-process workspace storage
 - no OCR for image-only PDFs
 - no enterprise authentication / permission model
@@ -257,7 +280,8 @@ Current MVP limitations:
 Next steps:
 
 - embedding-based semantic retrieval
-- GitHub App / Jira / Slack / Notion live connectors
+- GitHub App/OAuth, Slack OAuth and Notion public-connection authorization
+- Jira live connector
 - GCS/DB-based persistent workspace storage
 - retrieval caching and parallel tool calls
 - downstream task-quality evaluation
