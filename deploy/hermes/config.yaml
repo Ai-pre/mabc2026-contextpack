@@ -9,7 +9,7 @@ mcp_servers:
   mabc-sources:
     command: python
     args:
-      - /app/mabc_mcp_server.py
+      - /app/mabc_mcp_scoped_server.py
     env:
       CONTEXTPACK_WORKSPACE_ID: "${CONTEXTPACK_WORKSPACE_ID}"
       GITHUB_MCP_TOKEN: "${GITHUB_MCP_TOKEN}"
