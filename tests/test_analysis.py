@@ -61,6 +61,21 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn(raw.decode("utf-8").strip(), prompt)
         self.assertEqual(self.store.get_workspace(workspace_id)["task"], "Review changes")
 
+    def test_connected_github_repo_is_scoped_in_agent_prompt(self):
+        workspace_id = self.store.create_workspace("GitHub test")["workspace_id"]
+        self.store.add_github_source(workspace_id, "Ai-pre/mabc2026-contextpack")
+        with patch.object(api.runner, "run", return_value=self.result) as run:
+            response = self.client.post("/analyze", json={
+                "workspace_id": workspace_id,
+                "role": "Developer",
+                "task": "Review the latest repository changes",
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        prompt = run.call_args.args[0]
+        self.assertIn("Ai-pre/mabc2026-contextpack", prompt)
+        self.assertIn("github-live", prompt)
+        self.assertIn("다른 repository를 검색하거나 근거로 사용하지 않는다", prompt)
+
     def test_invalid_or_empty_workspace_never_launches_runner(self):
         empty = self.store.create_workspace()["workspace_id"]
         requests = [({}, 400), ({"role": 123, "task": "x"}, 400),
