@@ -230,11 +230,12 @@ def build_agent_prompt(req, workspace=None):
         source_instructions = """
 ## 필수 Source 조회
 
-- 최종 답변 전에 github_retrieve(workspace_id, query, repository)를 **1회 먼저 호출**해 실제 repository 근거를 가져온다.
+- 최종 답변 전에 github_retrieve(workspace_id, query, repository)를 **정확히 1회 먼저 호출**해 실제 repository 근거를 가져온다.
+- 같은 repository에 github_retrieve를 두 번 호출하지 않는다. query를 바꿔 재호출하지도 않는다.
 - github_retrieve는 최근 commit/PR, 관련 PR 변경 파일, repository 구조, README 맥락을 한 번에 반환한다.
 - 결과가 현재 Task를 수행하기에 충분하면 즉시 Handoff를 작성하고 추가 GitHub 탐색을 중단한다.
 - releases/list_commits/list_pull_requests 같은 granular tool을 각각 반복 호출하지 않는다.
-- aggregate retrieve에 특정 PR diff/파일 내용처럼 꼭 필요한 세부 근거가 빠진 경우에만 detail tool을 최대 1회 추가한다.
+- aggregate retrieve에 특정 PR diff/파일 내용처럼 꼭 필요한 세부 근거가 빠진 경우에만 detail tool을 최대 1회 추가한다. detail fallback이 비활성화되어 있으면 DO NOT ASSUME으로 남기고 종료한다.
 - 실제 GitHub tool result 없이 repository 내용이나 변경사항을 추정하지 않는다.
 """
     else:
@@ -287,7 +288,7 @@ def build_agent_prompt(req, workspace=None):
 - MCP 서버 이름 자체(mabc-sources, github-live)를 tool 이름으로 호출하지 않는다. Hermes가 실제로 노출한 개별 source tool을 사용한다.
 - **Stop early:** 충분한 Evidence를 확보한 뒤 "더 확실히 하기 위해" 같은 이유로 같은 사실을 재검색하지 않는다.
 - 업로드 문서만 있는 Workspace에서는 보통 1회 document_retrieve로 끝내고, 부족할 때만 1회의 보충 조회를 허용한다.
-- live GitHub가 연결된 경우 `github_retrieve`를 우선 사용한다. aggregate 결과로 답할 수 있으면 추가 PR/commit/release/코드 탐색을 중단한다.
+- live GitHub가 연결된 경우 `github_retrieve`를 repository당 1회만 사용한다. aggregate 결과로 답할 수 있으면 추가 PR/commit/release/코드 탐색을 중단한다.
 - 여러 독립적인 read-only 조회가 필요하면 가능한 경우 한 번의 tool-call batch로 요청한다.
 - 검색되지 않은 정보는 모델의 기억이나 일반 상식으로 채우지 않는다. 합리적인 조회 후에도 없으면 DO NOT ASSUME으로 남긴다.
 
