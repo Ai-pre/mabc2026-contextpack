@@ -28,5 +28,8 @@ export function jsonRequest(method, body) {
 }
 
 export function sourceLabel(source) {
+  if (source?.source_type === 'connector' && source?.connector === 'github' && source?.repository) {
+    return `GitHub · ${source.repository}`
+  }
   return source.original_filename || source.title || source.id
 }
