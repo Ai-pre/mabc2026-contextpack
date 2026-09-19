@@ -223,7 +223,7 @@ export NOTION_API_KEY=notion_token
 
 GitHub should use a fine-grained token with read-only access to only the repositories ContextPack is allowed to inspect.
 
-For Slack, install a Slack app in the target workspace and give its bot the history scope required by the channel type (for example `channels:history` for public channels and `groups:history` for private channels). Add the bot to the channel before registering that channel in ContextPack.
+For Slack, install a Slack app in the target workspace and give its bot the history scope required by the channel type (for example `channels:history` for public channels and `groups:history` for private channels). Add the bot to the channel before registering that channel in ContextPack. `channels:read` / `groups:read` are optional and only improve channel metadata such as the human-readable name/topic.
 
 For Notion, create a connection/integration with read-content access and grant it access to the page that will be registered in ContextPack. ContextPack uses Notion API version `2026-03-11`.
 
