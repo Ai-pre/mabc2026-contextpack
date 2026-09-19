@@ -90,6 +90,56 @@ def _tool(name: str, description: str, fn):
     server.add_tool(fn, name=name, description=description)
 
 
+# --- Demo fast path ---
+
+@server.tool()
+def demo_context_retrieve(query: str) -> str:
+    """Return the task-relevant demo evidence bundle in one MCP call.
+
+    The demo fixture is intentionally small and fixed. This fast path preserves
+    source boundaries while avoiding repeated Solar -> search/get -> Solar
+    round trips across GitHub, Jira, Slack and Notion.
+
+    It excludes known irrelevant frontend/marketing/SRE fixtures and returns the
+    backend/payment evidence needed to detect stale, conflicting and missing
+    information for the partial-refund scenario.
+    """
+    _require_workspace(demo_only=True)
+    if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
+        raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
+
+    github_ids = {"pr-148", "pr-152", "payment_service.py", "refund_service.py"}
+    jira_ids = {"PAY-176", "PAY-179", "PAY-181", "PAY-183"}
+
+    github = [item for item in _GITHUB.get("items", []) if item.get("id") in github_ids]
+    jira = [item for item in _JIRA.get("issues", []) if item.get("id") in jira_ids]
+    slack = [
+        {"channel": "payment-eng", **message}
+        for message in _SLACK.get("channels", {}).get("payment-eng", [])
+    ]
+    notion = [
+        {"id": section["id"], "title": section["title"], "content": section["content"]}
+        for section in _NOTION_SECTIONS
+    ]
+
+    return json.dumps({
+        "workspace_id": "demo",
+        "query": query,
+        "sources": {
+            "github": github,
+            "jira": jira,
+            "slack": slack,
+            "notion": notion,
+        },
+        "provenance": {
+            "github": "data/demo_project/github.json",
+            "jira": "data/demo_project/jira.json",
+            "slack": "data/demo_project/slack.json#payment-eng",
+            "notion": "data/demo_project/notion.md",
+        },
+    }, ensure_ascii=False, indent=2)
+
+
 # --- GitHub ---
 
 @server.tool()
