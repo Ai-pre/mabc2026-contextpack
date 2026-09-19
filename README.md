@@ -107,11 +107,11 @@ notion_search   / notion_get
   - MD
   - JSON
 - **Uploaded documents**: 자체 MCP server의 `document_search/document_get`으로 실제 동작
-- **GitHub**: 공식 GitHub Remote MCP Server를 통한 live read-only repository 연결 지원
+- **GitHub**: Workspace-scoped `github_retrieve` MCP Tool이 GitHub API의 live read-only evidence를 한 번에 수집
 - **Jira / Slack / Notion**: 현재 demo용 mock connector
   - Agent가 Task에 따라 필요한 Source/Tool을 선택하는 흐름 검증
 
-GitHub 연결은 Workspace에 `owner/repo`를 Source로 등록하고, Hermes가 공식 GitHub MCP의 read-only tools를 사용하도록 구성됩니다. Jira/Slack/Notion은 동일한 Connector 패턴으로 확장할 예정입니다.
+GitHub 연결은 Workspace에 `owner/repo`를 Source로 등록하고, Hermes가 `mabc-sources` MCP의 `github_retrieve`를 우선 호출하도록 구성됩니다. 이 Tool은 recent commits/PRs, 관련 PR 변경 파일, repository tree 요약, README 맥락을 한 번에 반환해 granular tool loop를 줄입니다. 공식 GitHub Remote MCP는 정확한 세부 확인이 필요한 경우에만 opt-in fallback으로 사용할 수 있습니다. Jira/Slack/Notion도 같은 retrieve-first Connector 패턴으로 확장할 예정입니다.
 
 ## Real Workspace Path
 
@@ -120,7 +120,7 @@ The production-oriented path is source-driven rather than demo-specific.
 ```text
 Workspace
 ├── Uploaded documents → mabc-sources / document_retrieve
-└── Connected GitHub   → official GitHub Remote MCP (read-only)
+└── Connected GitHub   → mabc-sources / github_retrieve (live read-only)
                          ↓
                       Hermes
                          ↓
@@ -131,7 +131,7 @@ Workspace
                   Handoff Context
 ```
 
-A real workspace only exposes evidence from sources registered to that workspace. Uploaded documents use the local MCP retriever; connected GitHub repositories use the live GitHub MCP connection. Jira, Slack and Notion demo fixtures remain isolated to the demo workspace and are not treated as live integrations.
+A real workspace only exposes evidence from sources registered to that workspace. Uploaded documents use `document_retrieve`; connected GitHub repositories use the aggregate `github_retrieve` MCP Tool. The official granular GitHub Remote MCP is disabled by default and can be enabled with `GITHUB_REMOTE_MCP_ENABLED=1` as a detail fallback. Jira, Slack and Notion demo fixtures remain isolated to the demo workspace and are not treated as live integrations.
 
 Completed analyses return an execution trace containing the exact MCP tool names that were used. The UI shows this trace so live-connector E2E runs can be verified without inferring tool usage from the generated Handoff.
 
