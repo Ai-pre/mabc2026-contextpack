@@ -20,7 +20,7 @@ from backend.workspace_store import SourceNotFound, WorkspaceStore, WorkspaceVal
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEMO_TOOL_NAMES = {f"{connector}_{action}" for connector in ("github", "jira", "slack", "notion")
                    for action in ("search", "get")}
-TOOL_NAMES = DEMO_TOOL_NAMES | {"demo_context_retrieve", "document_retrieve", "document_search", "document_get"}
+TOOL_NAMES = DEMO_TOOL_NAMES | {"demo_context_retrieve", "github_retrieve", "document_retrieve", "document_search", "document_get"}
 
 
 class DocumentMcpTests(unittest.TestCase):
@@ -46,18 +46,6 @@ class DocumentMcpTests(unittest.TestCase):
 
     def search(self, workspace_id, query="", **arguments):
         return json.loads(sources.document_search(workspace_id, query, **arguments))
-
-    def test_demo_context_retrieve_returns_all_relevant_sources_in_one_call(self):
-        response = json.loads(sources.demo_context_retrieve("결제 모듈 부분환불 기능 수정"))
-        self.assertEqual(response["workspace_id"], "demo")
-        self.assertEqual(set(response["sources"]), {"github", "jira", "slack", "notion"})
-        self.assertEqual({item["id"] for item in response["sources"]["github"]},
-                         {"pr-148", "pr-152", "payment_service.py", "refund_service.py"})
-        self.assertEqual({item["id"] for item in response["sources"]["jira"]},
-                         {"PAY-176", "PAY-179", "PAY-181", "PAY-183"})
-        self.assertEqual(len(response["sources"]["slack"]), 6)
-        self.assertGreaterEqual(len(response["sources"]["notion"]), 2)
-        self.assertIn("provenance", response)
 
     def test_demo_context_retrieve_returns_compact_conflict_preserving_bundle(self):
         raw = sources.demo_context_retrieve("결제 모듈 부분환불 기능 수정")
@@ -133,6 +121,8 @@ class DocumentMcpTests(unittest.TestCase):
                     self.assertEqual(set(tools[name].input_schema["properties"]), expected)
                 self.assertEqual(set(tools["demo_context_retrieve"].input_schema["properties"]),
                                  {"query"})
+                self.assertEqual(set(tools["github_retrieve"].input_schema["properties"]),
+                                 {"workspace_id", "query", "repository", "recent_limit"})
                 self.assertEqual(set(tools["document_retrieve"].input_schema["properties"]),
                                  {"workspace_id", "query", "top_k", "max_chars_per_doc"})
                 self.assertEqual(set(tools["document_search"].input_schema["properties"]),
@@ -174,6 +164,71 @@ class DocumentMcpTests(unittest.TestCase):
                     sources.github_search("pr-148")
                 with self.assertRaises(WorkspaceValidationError):
                     sources.document_search("demo", "")
+
+    def test_live_github_retrieve_aggregates_registered_repository(self):
+        workspace_id = self.workspace()
+        self.store.add_github_source(workspace_id, "Ai-pre/mabc2026-contextpack")
+
+        def fake_api(path):
+            if path == "/repos/Ai-pre/mabc2026-contextpack":
+                return {
+                    "description": "Context handoff",
+                    "default_branch": "main",
+                    "updated_at": "2026-09-20T00:00:00Z",
+                    "pushed_at": "2026-09-20T00:00:00Z",
+                }
+            if "/commits?" in path:
+                return [{
+                    "sha": "abcdef1234567890",
+                    "commit": {
+                        "message": "perf: route live GitHub through aggregate MCP retrieval",
+                        "author": {"date": "2026-09-20T00:00:00Z"},
+                    },
+                }]
+            if "/pulls?state=all" in path:
+                return [{
+                    "number": 1,
+                    "state": "open",
+                    "draft": True,
+                    "updated_at": "2026-09-20T00:00:00Z",
+                    "merged_at": None,
+                    "title": "feat: add live GitHub MCP connector",
+                    "body": "MCP deployment changes",
+                }]
+            if "/pulls/1/files" in path:
+                return [{"filename": "backend/main.py", "status": "modified", "additions": 10, "deletions": 2}]
+            if path.endswith("/readme"):
+                import base64
+                return {"content": base64.b64encode(b"# ContextPack\nLive GitHub MCP").decode("ascii")}
+            if "/git/trees/" in path:
+                return {"tree": [
+                    {"path": "README.md"}, {"path": "backend/main.py"},
+                    {"path": "deploy/hermes/config.yaml"},
+                ]}
+            raise AssertionError(path)
+
+        with patch.dict(os.environ, {"GITHUB_MCP_TOKEN": "test-token"}), \
+             patch.object(sources, "_github_api", side_effect=fake_api):
+            raw = sources.github_retrieve(
+                workspace_id,
+                "ContextPack MCP deployment changes",
+                "Ai-pre/mabc2026-contextpack",
+            )
+
+        response = json.loads(raw)
+        self.assertEqual(response["repository"], "Ai-pre/mabc2026-contextpack")
+        self.assertEqual(response["recent_commits"][0]["sha"], "abcdef123456")
+        self.assertEqual(response["relevant_recent_pull_requests"][0]["number"], 1)
+        self.assertEqual(
+            response["relevant_recent_pull_requests"][0]["files"][0]["filename"],
+            "backend/main.py",
+        )
+        self.assertIn("deploy/hermes/config.yaml", response["tree_summary"]["query_paths"])
+        self.assertIn("Live GitHub MCP", response["readme_preview"])
+
+        with patch.dict(os.environ, {"GITHUB_MCP_TOKEN": "test-token"}):
+            with self.assertRaises(WorkspaceValidationError):
+                sources.github_retrieve(workspace_id, "x", "other/repo")
 
     def test_multi_term_korean_english_search_and_exact_snippet_offsets(self):
         workspace_id = self.workspace()
