@@ -1,9 +1,12 @@
+import { useState } from 'react'
 import { motion } from 'motion/react'
 import { sourceLabel } from '../workspaceApi'
 import './Sidebar.css'
 
-function Sidebar({ workspaces, selectedId, sources, onNewPack, onSelectWorkspace, onAddSources, onRemoveSource, disabled, hasWorkspace, status }) {
+function Sidebar({ workspaces, selectedId, sources, onNewPack, onSelectWorkspace, onAddSources, onConnectGitHub, onRemoveSource, disabled, hasWorkspace, canConnectGitHub, status }) {
+  const [githubRepo, setGithubRepo] = useState('')
   const uploaded = sources.filter((source) => source.source_type === 'upload')
+  const connected = sources.filter((source) => source.source_type === 'connector')
   const demo = sources.filter((source) => source.source_type === 'demo')
   return (
     <motion.aside
@@ -49,6 +52,47 @@ function Sidebar({ workspaces, selectedId, sources, onNewPack, onSelectWorkspace
             <span className="sidebar-item-icon">+</span><span className="sidebar-item-text">Add Sources</span>
           </button>
           <p className="sidebar-source-help">PDF, DOCX, TXT, MD, JSON · 10 MiB each</p>
+
+          <div className="sidebar-github-connect">
+            <input
+              type="text"
+              className="sidebar-github-input"
+              value={githubRepo}
+              onChange={(event) => setGithubRepo(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && githubRepo.trim() && canConnectGitHub && !disabled) {
+                  event.preventDefault()
+                  onConnectGitHub(githubRepo.trim())
+                }
+              }}
+              placeholder="owner/repo or GitHub URL"
+              aria-label="GitHub repository"
+              disabled={disabled || !canConnectGitHub}
+            />
+            <button
+              type="button"
+              className="sidebar-connect-btn"
+              onClick={() => onConnectGitHub(githubRepo.trim())}
+              disabled={disabled || !canConnectGitHub || !githubRepo.trim()}
+            >
+              Connect GitHub
+            </button>
+          </div>
+          <p className="sidebar-source-help">Live GitHub uses the server-side read-only MCP connection.</p>
+
+          {connected.length > 0 && <>
+            <div className="sidebar-source-group">Connected <span>{connected.length}</span></div>
+            <div className="sidebar-sources">
+              {connected.map((source) => (
+                <div key={source.id} className="sidebar-source-row">
+                  <span className="sidebar-source-name" title={sourceLabel(source)}>{sourceLabel(source)}</span>
+                  <button type="button" className="sidebar-remove-source" onClick={() => onRemoveSource(source)}
+                    disabled={disabled} aria-label={`Remove ${sourceLabel(source)}`} title="Disconnect source">×</button>
+                </div>
+              ))}
+            </div>
+          </>}
+
           <div className="sidebar-source-group">Uploaded <span>{uploaded.length}</span></div>
           <div className="sidebar-sources">
             {uploaded.map((source) => (
