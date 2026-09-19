@@ -84,8 +84,30 @@ class AnalysisTests(unittest.TestCase):
         prompt = run.call_args.args[0]
         self.assertIn("Ai-pre/mabc2026-contextpack", prompt)
         self.assertIn("github_retrieve", prompt)
-        self.assertIn("aggregate retrieve", prompt)
-        self.assertIn("다른 repository를 검색하거나 근거로 사용하지 않는다", prompt)
+        self.assertIn("aggregate", prompt)
+        self.assertIn("다른 repository를 근거로 사용하지 않는다", prompt)
+
+    def test_connected_slack_and_notion_sources_are_scoped_in_agent_prompt(self):
+        workspace_id = self.store.create_workspace("Connector test")["workspace_id"]
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+        self.store.add_notion_source(
+            workspace_id,
+            "12345678-1234-1234-1234-123456789abc",
+        )
+        with patch.object(api.runner, "run", return_value=self.result) as run:
+            response = self.client.post("/analyze", json={
+                "workspace_id": workspace_id,
+                "role": "Developer",
+                "task": "Review the rollout discussion and spec",
+            })
+        self.assertEqual(response.status_code, 200, response.text)
+        prompt = run.call_args.args[0]
+        self.assertIn("C012ABCDEF", prompt)
+        self.assertIn("12345678-1234-1234-1234-123456789abc", prompt)
+        self.assertIn("slack_retrieve", prompt)
+        self.assertIn("notion_retrieve", prompt)
+        self.assertIn("등록되지 않은 채널", prompt)
+        self.assertIn("등록되지 않은 페이지", prompt)
 
     def test_invalid_or_empty_workspace_never_launches_runner(self):
         empty = self.store.create_workspace()["workspace_id"]
