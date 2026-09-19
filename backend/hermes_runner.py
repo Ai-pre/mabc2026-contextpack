@@ -329,6 +329,14 @@ class CliHermesRunner:
                 # Hermes CLI closing / signature
                 r"(?mi)^\s*[-—─?]+\s*Hermes\s*$",
 
+                # Runtime/tool trace that may be printed after the final answer.
+                # Match trace-shaped lines only; ordinary SOURCE MAP text is allowed
+                # to mention names such as mcp__mabc_sources__demo_context_retrieve.
+                r"(?mi)^\s*Initializing agent\.\.\..*$",
+                r"(?mi)^\s*[│┃]?\s*[⚡🔧🧰🔍]\s+.*$",
+                r"(?mi)^\s*[│┃]?\s*preparing(?:_|\s).*$",
+                r"(?mi)^\s*Local tools require one entry per tool_call.*$",
+
                 # 응답 뒤 commentary
                 r"(?mi)^\s*ContextPack\s+(?:완성|complete|ready)\b.*$",
                 r"(?mi)^\s*파일:.*$",
@@ -362,20 +370,17 @@ class CliHermesRunner:
 
             # 3. 이제 Handoff 본문 내부에 runtime/tool trace가
             #    섞였는지만 검사한다.
-            runtime_markers = [
-                "Initializing agent",
-                "preparing_tool_call",
-                "preparing tool_call",
-                "| DSML |",
-                "mcp__mabc",
-                "Local tools require one entry per tool_call",
+            runtime_line_patterns = [
+                r"(?mi)^\s*Initializing agent\.\.\..*$",
+                r"(?mi)^\s*[│┃]?\s*[⚡🔧🧰🔍]\s+.*$",
+                r"(?mi)^\s*[│┃]?\s*preparing(?:_|\s).*$",
+                r"(?mi)^\s*\|\s*DSML\s*\|.*$",
+                r"(?mi)^\s*Local tools require one entry per tool_call.*$",
             ]
 
-            lower_candidate = candidate.lower()
-
             if any(
-                marker.lower() in lower_candidate
-                for marker in runtime_markers
+                re.search(pattern, candidate)
+                for pattern in runtime_line_patterns
             ):
                 continue
 
