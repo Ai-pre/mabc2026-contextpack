@@ -163,8 +163,8 @@ class CliHermesRunner:
             and "context-pack" in cmd
         )
 
+        mcp_tool_calls = self._count_mcp_calls(trace_text)
         mcp_tools = self._extract_mcp_tools(trace_text)
-        mcp_tool_calls = len(mcp_tools)
 
         if mcp_tool_calls == 0:
             raise HermesExecutionError(
@@ -234,16 +234,34 @@ class CliHermesRunner:
 
     @staticmethod
     def _extract_mcp_tools(text: str) -> list[str]:
-        """Return MCP tool names from Hermes trace events in call order."""
-        return re.findall(
-            r"(?mi)^.*⚡\s+(mcp(?:__|_)[A-Za-z0-9_.:-]+)",
+        """Return the most specific MCP tool names observed in stdout.
+
+        Hermes 0.21 may visually truncate a trace label (for example
+        `mcp__mabc`) while the final SOURCE MAP contains the full callable
+        identifier. Prefer full `mcp__server__tool` names when available.
+        """
+        full = re.findall(
+            r"(?i)\b(mcp__[A-Za-z0-9_]+__[A-Za-z0-9_]+)\b",
             text,
         )
+        if full:
+            return list(dict.fromkeys(full))
+
+        trace = re.findall(
+            r"(?mi)^.*⚡\s+(mcp[^\s(]+)",
+            text,
+        )
+        return list(dict.fromkeys(name.rstrip(",:;") for name in trace))
 
     @staticmethod
     def _count_mcp_calls(text: str) -> int:
-        """Backward-compatible count helper used by tests."""
-        return len(CliHermesRunner._extract_mcp_tools(text))
+        """Count actual MCP call trace events, independent of display names."""
+        return len(
+            re.findall(
+                r"(?mi)^.*⚡\s+mcp(?:__|_)",
+                text,
+            )
+        )
 
     @staticmethod
     def _extract_handoff(text: str) -> str:
