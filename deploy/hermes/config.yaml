@@ -13,6 +13,8 @@ mcp_servers:
     env:
       CONTEXTPACK_WORKSPACE_ID: "${CONTEXTPACK_WORKSPACE_ID}"
       GITHUB_MCP_TOKEN: "${GITHUB_MCP_TOKEN}"
+      SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"
+      NOTION_API_KEY: "${NOTION_API_KEY}"
     enabled: true
     timeout: 120
     connect_timeout: 60
