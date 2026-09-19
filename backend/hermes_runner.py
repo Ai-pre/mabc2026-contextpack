@@ -63,7 +63,7 @@ class CliHermesRunner:
             "--toolsets",
             ",".join(toolsets),
             "--max-turns",
-            "4",
+            "5",
             "-q",
             prompt,
         ]
