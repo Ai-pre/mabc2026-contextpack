@@ -406,7 +406,10 @@ def build_agent_prompt(req, workspace=None):
    - 더 늦은 날짜만으로 승자를 정하지 않는다. 명시적인 권위/승인 우선순위 근거가 없으면 unresolved 상태를 유지한다.
 
 3. **MISSING (현재 자료에 없는 정보)**
-   - 작업에 필요한데 어느 source에도 없는 정보는 DO NOT ASSUME / MISSING으로 남기고 임의로 추측하지 않는다.
+   - 작업에 필요한데 어느 source에도 없는 정보만 DO NOT ASSUME / MISSING으로 남기고 임의로 추측하지 않는다.
+   - final 결정에 의해 명시적으로 대체된 tentative/candidate 안은 MISSING이 아니다. "이전 안이 별도 확정으로 남았는지" 같은 가상의 가능성을 새 MISSING으로 만들지 않는다.
+   - superseded tentative는 Task 이해에 꼭 필요할 때만 USEFUL IF SPACE ALLOWS에 과거 논의로 짧게 남기고, 필요 없으면 완전히 제외한다.
+   - DO NOT ASSUME에는 현재 Task 수행에 실제로 필요한데 근거가 없는 세부사항만 넣는다.
 
 4. **Irrelevant (현재 Task와 무관한 정보)**
    - 현재 Role과 Task에 무관한 정보는 ContextPack에 포함하지 않는다.
@@ -425,6 +428,7 @@ context-pack Skill의 최종 Handoff Context만 출력한다.
 - Handoff 본문 뒤에는 어떤 문장도 추가하지 않는다.
 - 동일 내용을 여러 섹션에 장문으로 반복하지 않는다. 각 항목은 가능한 한 1~2문장으로 압축한다.
 - UNRESOLVED CONFLICTS에 들어간 fact의 한쪽 값을 MUST KNOW/CONSTRAINTS에 확정 사실로 중복 기재하지 않는다.
+- [SOURCE MAP]의 각 항목에는 근거를 가져온 **정확한 MCP callable identifier**를 포함한다. 예: `mcp__mabc_sources__slack_retrieve(...)`. `mcp__mabc`처럼 잘린 서버 이름만 쓰지 않는다.
 - 마지막 [SOURCE MAP] 내용이 끝나면 응답을 즉시 종료한다.
 
 정확한 출력 예:
