@@ -247,6 +247,18 @@ class CliHermesRunner:
         if full:
             return list(dict.fromkeys(full))
 
+        # Hermes may print only `mcp__mabc` in the trace while the Handoff
+        # mentions the aggregate retriever by its leaf name. When exactly one
+        # known aggregate retriever is present, recover the full callable name
+        # for UI traceability instead of exposing the truncated server label.
+        aggregate_leafs = re.findall(
+            r"(?i)\b(demo_context_retrieve|document_retrieve|github_retrieve|slack_retrieve|notion_retrieve)\b",
+            text,
+        )
+        aggregate_leafs = list(dict.fromkeys(name.lower() for name in aggregate_leafs))
+        if len(aggregate_leafs) == 1:
+            return [f"mcp__mabc_sources__{aggregate_leafs[0]}"]
+
         trace = re.findall(
             r"(?mi)^.*⚡\s+(mcp[^\s(]+)",
             text,
