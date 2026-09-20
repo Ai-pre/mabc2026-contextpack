@@ -76,6 +76,29 @@ def _looks_like_retrieval_mechanics(text: str) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
 
 
+def _strip_analysis_scope_prefix(item: str) -> str:
+    """Remove a current-workspace registration clause but keep project facts.
+
+    Example:
+    "- Slack connector 관련: Workspace에는 C123 채널이 등록되어 있으며 retrieval은 ..."
+    becomes:
+    "- retrieval은 ..."
+    """
+    match = re.match(r"^(\s*-\s*)", item)
+    bullet = match.group(1) if match else ""
+    body = item[match.end():] if match else item
+    body = re.sub(
+        r"(?i)^(?:slack\s+connector\s+관련:\s*)?"
+        r"(?:이\s*)?(?:workspace|작업공간)(?:에는|에)\s+.*?"
+        r"(?:등록되어\s*있으며|연결되어\s*있으며)\s*",
+        "",
+        body,
+    ).strip()
+    if not body:
+        return ""
+    return bullet + body
+
+
 def _looks_like_analysis_scope_metadata(text: str) -> bool:
     """Detect facts about this analysis run's configured workspace/sources.
 
@@ -93,6 +116,8 @@ def _looks_like_analysis_scope_metadata(text: str) -> bool:
         r"(?:이|현재|해당)\s*workspace.*(?:slack_retrieve|notion_retrieve|github_retrieve|document_retrieve)",
         r"(?:이 task 수행 시점|현재 분석 시점).*(?:source|connector|retrieve|근거)",
         r"(?:source|connector).*(?:이|현재|해당)\s*workspace.*(?:없|연결되지|등록되지)",
+        r"(?:live\s+)?(?:github\s+repository|slack\s+channel|notion\s+page).*(?:현재\s*)?(?:연결되어\s*있지|연결되지|미연결)",
+        r"(?:현재\s*)?(?:연결|등록)되어\s*있지\s*않.*(?:retrieve|사용하지)",
     )
     return any(re.search(pattern, text) for pattern in patterns)
 
@@ -187,6 +212,9 @@ def sanitize_handoff(handoff: str) -> str:
     def filtered(section: str) -> list[str]:
         kept: list[str] = []
         for item in split_section_items(bodies.get(section, "")):
+            item = _strip_analysis_scope_prefix(item)
+            if not item:
+                continue
             text = _normalized(item)
             if text in {"- none", "none"}:
                 continue
