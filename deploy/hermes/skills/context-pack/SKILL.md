@@ -158,6 +158,19 @@ budget 안에 들어가지 않는 경우 핵심 정보를 조용히 삭제하지
 
 v1에서는 사용자가 명시적으로 토큰 단위 제한을 요구하지 않았다면 불필요한 tokenizer helper script를 만들지 않는다.
 
+### Analysis Workspace Metadata Isolation
+
+현재 분석 실행의 Source 연결 상태는 Project Context가 아니다.
+
+- "이 workspace는 GitHub-only다"
+- "Slack/Notion connector가 연결되어 있지 않다"
+- "현재 workspace에서 slack_retrieve를 사용할 수 없다"
+- "등록 Source가 없어서 이 connector를 조회하지 않았다"
+
+위와 같은 내용은 retrieval/runtime metadata이므로 `[MUST KNOW]`, `[CONSTRAINTS]`, `[USEFUL IF SPACE ALLOWS]`, `[VERIFY BEFORE USE]`, `[DO NOT ASSUME]`에 넣지 않는다. 필요한 경우 실행 trace와 `[SOURCE MAP]`에서만 추적한다.
+
+반대로 source 자체가 제공하는 프로젝트 사실(예: PR이 open draft인지, commit이 merged됐는지, 실제 배포 설정이 무엇인지)은 일반 Evidence로 처리한다. 한 항목에 analysis workspace metadata와 프로젝트 uncertainty가 섞이면 execution metadata를 제거하고 source가 직접 뒷받침하는 프로젝트 사실만 남긴다.
+
 ### Handoff Safety 규칙
 `CONFLICT`, `STALE`, `MISSING` 정보를 다음 Agent에게 **확정 사실처럼 전달하면 안 된다.**
 
