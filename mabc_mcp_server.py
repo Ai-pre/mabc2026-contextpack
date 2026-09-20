@@ -157,6 +157,52 @@ def _text_score(value: str, terms: list[str]) -> int:
     return sum(1 for term in terms if term in folded)
 
 
+def _github_query_terms(query: str) -> list[str]:
+    """Expand a few common bilingual repository-task terms.
+
+    This stays GitHub-specific so Slack/Notion ranking semantics are unchanged.
+    """
+    terms = _query_terms(query)
+    folded = query.casefold()
+    expansions = {
+        "배포": ("deploy", "deployment", "cloud run"),
+        "변경": ("change", "changes", "feat", "fix", "refactor"),
+        "변경사항": ("change", "changes", "feat", "fix", "refactor"),
+        "구조": ("architecture", "structure"),
+        "아키텍처": ("architecture", "structure"),
+        "최신": ("latest", "recent"),
+        "최근": ("latest", "recent"),
+    }
+    for marker, extra in expansions.items():
+        if marker in folded:
+            terms.extend(extra)
+    return list(dict.fromkeys(term for term in terms if term))
+
+
+def _best_text_excerpt(text: str, terms: list[str], max_chars: int = 900) -> str:
+    """Return a bounded excerpt around the most query-relevant line."""
+    if not text:
+        return ""
+    lines = text.splitlines()
+    if not lines:
+        return text[:max_chars]
+    scored = [(_text_score(line, terms), index) for index, line in enumerate(lines)]
+    score, index = max(scored, key=lambda item: (item[0], -item[1]))
+    if score <= 0:
+        return text[:max_chars]
+    start = max(0, index - 3)
+    selected: list[str] = []
+    total = 0
+    for line in lines[start:]:
+        if total + len(line) + 1 > max_chars:
+            break
+        selected.append(line)
+        total += len(line) + 1
+        if len(selected) >= 14:
+            break
+    return "\n".join(selected).strip()
+
+
 @server.tool()
 def github_retrieve(
     workspace_id: str,
@@ -285,7 +331,7 @@ def github_retrieve(
     readme = snapshot["readme"]
     paths = snapshot["paths"]
 
-    terms = _query_terms(query)
+    terms = _github_query_terms(query)
 
     compact_commits = []
     for item in commits:
@@ -301,9 +347,17 @@ def github_retrieve(
         key=lambda item: (item["_score"], item.get("date") or ""),
         reverse=True,
     )
+    positive_commits = [item for item in compact_commits if item["_score"] > 0]
+    recent_change_intent = any(
+        marker in query.casefold()
+        for marker in ("최근", "최신", "변경", "change", "recent", "latest", "deploy", "배포")
+    )
+    selected_commits = positive_commits[:6]
+    if not selected_commits and recent_change_intent:
+        selected_commits = compact_commits[:2]
     compact_commits = [
         {k: v for k, v in item.items() if k != "_score"}
-        for item in compact_commits[:6]
+        for item in selected_commits
     ]
 
     compact_pulls = []
@@ -336,9 +390,13 @@ def github_retrieve(
         key=lambda item: (item["_score"], item.get("updated_at") or ""),
         reverse=True,
     )
+    positive_pulls = [item for item in compact_pulls if item["_score"] > 0]
+    selected_pulls = positive_pulls[:3]
+    if not selected_pulls and recent_change_intent:
+        selected_pulls = compact_pulls[:1]
     compact_pulls = [
         {k: v for k, v in item.items() if k != "_score"}
-        for item in compact_pulls[:2]
+        for item in selected_pulls
     ]
 
     scored_paths = [
@@ -356,20 +414,7 @@ def github_retrieve(
         "query_paths": [path for _, path in scored_paths[:15]],
     }
 
-    normalized_evidence = [
-        make_evidence(
-            evidence_id=f"github:{repository}:repo",
-            source_type="github",
-            source_ref=repository,
-            kind="repository",
-            content="\n".join(filter(None, [
-                metadata.get("description") or "",
-                f"default branch: {default_branch}",
-            ])),
-            timestamp=metadata.get("pushed_at") or metadata.get("updated_at"),
-            metadata={"repository": repository, "default_branch": default_branch},
-        )
-    ]
+    normalized_evidence: list[dict[str, Any]] = []
     for commit in compact_commits:
         normalized_evidence.append(make_evidence(
             evidence_id=f"github:{repository}:commit:{commit.get('sha')}",
@@ -405,15 +450,20 @@ def github_retrieve(
                 "files": pull.get("files", []),
             },
         ))
-    if readme:
+    readme_intent = any(
+        marker in query.casefold()
+        for marker in ("구조", "아키텍처", "architecture", "structure", "overview", "readme")
+    )
+    readme_excerpt = _best_text_excerpt(readme, terms) if readme and readme_intent else ""
+    if readme_excerpt:
         normalized_evidence.append(make_evidence(
             evidence_id=f"github:{repository}:readme",
             source_type="github",
             source_ref=f"{repository}:README",
             kind="document",
-            content=readme,
+            content=readme_excerpt,
             timestamp=metadata.get("pushed_at") or metadata.get("updated_at"),
-            metadata={"repository": repository},
+            metadata={"repository": repository, "excerpted": True},
         ))
     if tree_summary["query_paths"]:
         normalized_evidence.append(make_evidence(
@@ -439,7 +489,7 @@ def github_retrieve(
         "recent_commits": compact_commits,
         "relevant_recent_pull_requests": compact_pulls,
         "tree_summary": tree_summary,
-        "readme_preview": readme,
+        "readme_preview": readme_excerpt,
         "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
         "evidence": normalized_evidence,
         "cache_reused": cache_reused,
