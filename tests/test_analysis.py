@@ -71,7 +71,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs, {"workspace_id": "demo", "github_enabled": False})
         prompt = run.call_args.args[0]
         self.assertIn("demo_context_retrieve", prompt)
-        self.assertIn("충돌한 fact의 어느 한쪽 값도 MUST KNOW/CONSTRAINTS에 확정 사실로 쓰지 않는다", prompt)
+        self.assertIn("실제 CONFLICT인 경우 그 fact의 어느 한쪽 값도 MUST KNOW/CONSTRAINTS에 확정 사실로 쓰지 않는다", prompt)
 
     def test_uploaded_workspace_passes_scope_without_raw_documents(self):
         workspace_id = self.store.create_workspace("Upload test")["workspace_id"]
@@ -402,17 +402,41 @@ Resume this session with:
 [SOURCE MAP]
 - None
 """
-        with patch("hermes_runner.subprocess.run",
+        with patch("backend.hermes_runner.subprocess.run",
                    return_value=SimpleNamespace(returncode=0, stdout=stdout, stderr="")):
             with self.assertRaises(HermesExecutionError) as caught:
                 api.runner.run("Test prompt", workspace_id="demo")
         self.assertIn("without reading any registered Source", str(caught.exception))
 
     def test_cli_command_keeps_context_pack_and_isolates_child_environment(self):
-        stdout = (ROOT / "cli_success_stdout.txt").read_text(encoding="utf-8-sig")
+        stdout = """⚡ mcp__mabc_sources__demo_context_retrieve
+[TASK]
+- Test task
+
+[MUST KNOW]
+- Test evidence
+
+[CONSTRAINTS]
+- None
+
+[USEFUL IF SPACE ALLOWS]
+- None
+
+[UNRESOLVED CONFLICTS]
+- None
+
+[VERIFY BEFORE USE]
+- None
+
+[DO NOT ASSUME]
+- None
+
+[SOURCE MAP]
+- mcp__mabc_sources__demo_context_retrieve(query=test)
+"""
         scope = "ws_" + "a" * 32
         previous = os.environ.get("CONTEXTPACK_WORKSPACE_ID")
-        with patch("hermes_runner.subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=stdout, stderr="")) as launch:
+        with patch("backend.hermes_runner.subprocess.run", return_value=SimpleNamespace(returncode=0, stdout=stdout, stderr="")) as launch:
             result = api.runner.run("Test prompt", workspace_id=scope)
         args = launch.call_args.args[0]
         self.assertEqual(args[1:5], ["chat", "--oneshot", "--skills", "context-pack"])
@@ -421,8 +445,15 @@ Resume this session with:
         self.assertEqual(launch.call_args.kwargs["env"]["CONTEXTPACK_WORKSPACE_ID"], scope)
         self.assertEqual(os.environ.get("CONTEXTPACK_WORKSPACE_ID"), previous)
         self.assertTrue(result.handoff.startswith("[TASK]"))
-        self.assertEqual(result.skill_used, CliHermesRunner._detect_skill(CliHermesRunner._clean_output(stdout)))
-        self.assertEqual(result.mcp_tool_calls, CliHermesRunner._count_mcp_calls(CliHermesRunner._clean_output(stdout)))
+        self.assertTrue(result.skill_used)
+        self.assertEqual(
+            result.mcp_tool_calls,
+            CliHermesRunner._count_mcp_calls(CliHermesRunner._clean_output(stdout)),
+        )
+        self.assertEqual(
+            result.mcp_tools,
+            ["mcp__mabc_sources__demo_context_retrieve"],
+        )
 
 
 if __name__ == "__main__":
