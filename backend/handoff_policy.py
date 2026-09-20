@@ -119,6 +119,7 @@ def _looks_like_analysis_scope_metadata(text: str) -> bool:
         r"(?:live\s+)?(?:github\s+repository|slack\s+channel|notion\s+page).*(?:현재\s*)?(?:연결되어\s*있지|연결되지|미연결)",
         r"(?:현재\s*)?(?:연결|등록)되어\s*있지\s*않.*(?:retrieve|사용하지)",
         r"^-\s*등록(?:된)?\s*workspace\s*source만\s*근거로\s*사용",
+        r"등록(?:된)?\s*(?:workspace|작업공간)\s*source만.*근거",
         r"\(이\s*workspace:\s*(?:github|slack|notion|document)",
     )
     return any(re.search(pattern, text) for pattern in patterns)
@@ -185,6 +186,80 @@ def _extract_final_claim_from_superseded_conflict(item: str) -> str | None:
     return None
 
 
+def _source_identity_tokens(text: str) -> set[str]:
+    """Extract stable source-ish tokens used to pair split claims conservatively."""
+    tokens = set(re.findall(r"\b\d{10,}(?:\.\d+)?\b", text))
+    tokens.update(
+        token.casefold()
+        for token in re.findall(
+            r"\b(?:slack|github|notion|document)[:/][A-Za-z0-9_.:#/@-]+",
+            text,
+            flags=re.I,
+        )
+    )
+    return tokens
+
+
+def _clean_split_final_claim(item: str) -> str:
+    body = re.sub(r"^\s*-\s*", "", item).strip()
+    body = re.sub(r"(?i)^claim\s*[ab]\s*:\s*", "", body).strip()
+    body = re.sub(
+        r"\s*\((?:slack|github|notion|document)\b[^)]*\)\s*$",
+        "",
+        body,
+        flags=re.I,
+    ).strip()
+    return f"- {body}" if body else ""
+
+
+def _resolve_split_tentative_final_conflicts(items: list[str]) -> tuple[set[str], list[str]]:
+    """Resolve split Claim A/Claim B when one is tentative and the other final.
+
+    We only auto-resolve when the pair is explicitly Claim A/B or both bullets
+    share a stable source token (for example the same Slack message timestamp).
+    True final-vs-final conflicts are never touched.
+    """
+    resolved: set[str] = set()
+    promoted: list[str] = []
+
+    for i, first in enumerate(items):
+        first_text = _normalized(first)
+        first_tentative = any(marker in first_text for marker in TENTATIVE_MARKERS)
+        first_final = any(marker in first_text for marker in FINAL_MARKERS)
+        if not first_tentative or first_final or _has_actual_reopening_signal(first_text):
+            continue
+
+        for second in items[i + 1:]:
+            second_text = _normalized(second)
+            second_tentative = any(marker in second_text for marker in TENTATIVE_MARKERS)
+            second_final = any(marker in second_text for marker in FINAL_MARKERS)
+            if not second_final or second_tentative or _has_actual_reopening_signal(second_text):
+                continue
+
+            explicit_pair = (
+                re.search(r"(?i)^\s*-\s*claim\s*a\s*:", first) is not None
+                and re.search(r"(?i)^\s*-\s*claim\s*b\s*:", second) is not None
+            )
+            shared_source = bool(
+                _source_identity_tokens(first_text)
+                & _source_identity_tokens(second_text)
+            )
+            if not (explicit_pair or shared_source):
+                continue
+
+            resolved.update({first, second})
+            cleaned = _clean_split_final_claim(second)
+            if cleaned:
+                promoted.append(cleaned)
+            break
+
+    return resolved, promoted
+
+
+def _is_provenance_only_item(text: str) -> bool:
+    return bool(re.match(r"^-?\s*(?:근거|source|출처)\s*:", text))
+
+
 def _is_hypothetical_reopening_gap(text: str) -> bool:
     """Drop invented uncertainty about a final decision being reopened later.
 
@@ -213,6 +288,8 @@ def _is_low_value_retrieved_item(text: str) -> bool:
         r"결정사항과 직접 관련 없어",
         r"참여자? 진입 메시지",
         r"채널 참여 메시지",
+        r"참여 이벤트",
+        r"결정 근거로는? 미사용",
         r"join message",
         r"joined (?:the )?channel",
     )
@@ -230,6 +307,7 @@ def _is_generic_coverage_disclaimer(text: str) -> bool:
         r"추가 확인이 안전",
         r"more (?:messages|documents|sources|discussion).*may exist",
         r"outside (?:the )?(?:retrieval|current) scope",
+        r"(?:slack|github|notion|document).*(?:외|밖).*추가.*(?:확정|결정|설정)",
     )
     return any(re.search(pattern, text) for pattern in patterns)
 
@@ -254,8 +332,11 @@ def sanitize_handoff(handoff: str) -> str:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(handoff)
         bodies[match.group(1)] = handoff[match.end():end].strip()
 
-    promoted_must_know: list[str] = []
-    for item in split_section_items(bodies.get("[UNRESOLVED CONFLICTS]", "")):
+    conflict_items = split_section_items(bodies.get("[UNRESOLVED CONFLICTS]", ""))
+    resolved_conflict_items, split_promotions = _resolve_split_tentative_final_conflicts(conflict_items)
+
+    promoted_must_know: list[str] = list(split_promotions)
+    for item in conflict_items:
         text = _normalized(item)
         if _is_superseded_history(text):
             promoted = _extract_final_claim_from_superseded_conflict(item)
@@ -292,8 +373,15 @@ def sanitize_handoff(handoff: str) -> str:
             if section in semantic_sections and _is_low_value_retrieved_item(text):
                 continue
 
+            if section in semantic_sections and _is_provenance_only_item(text):
+                continue
+
             if section == "[UNRESOLVED CONFLICTS]":
-                if _is_absence_only_conflict(text) or _is_superseded_history(text):
+                if (
+                    item in resolved_conflict_items
+                    or _is_absence_only_conflict(text)
+                    or _is_superseded_history(text)
+                ):
                     continue
 
             if section == "[VERIFY BEFORE USE]":
