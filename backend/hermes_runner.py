@@ -166,7 +166,7 @@ class CliHermesRunner:
         )
 
         mcp_tool_calls = self._count_mcp_calls(trace_text)
-        mcp_tools = self._extract_mcp_tools(trace_text)
+        mcp_tools = self._extract_mcp_tools(trace_text, handoff=handoff)
 
         if mcp_tool_calls == 0:
             raise HermesExecutionError(
@@ -235,37 +235,44 @@ class CliHermesRunner:
         )
 
     @staticmethod
-    def _extract_mcp_tools(text: str) -> list[str]:
-        """Return the most specific MCP tool names observed in stdout.
+    def _extract_mcp_tools(text: str, handoff: str = "") -> list[str]:
+        """Return tools from actual Hermes trace events.
 
-        Hermes 0.21 may visually truncate a trace label (for example
-        `mcp__mabc`) while the final SOURCE MAP contains the full callable
-        identifier. Prefer full `mcp__server__tool` names when available.
+        Never infer tools from the entire stdout because the echoed runtime
+        prompt may itself contain MCP examples. If Hermes truncates a trace
+        event to `mcp__mabc`, recover the leaf only from the already-extracted
+        final Handoff SOURCE MAP.
         """
-        full = re.findall(
-            r"(?i)\b(mcp__[A-Za-z0-9_]+__[A-Za-z0-9_]+)\b",
-            text,
-        )
-        if full:
-            return list(dict.fromkeys(full))
-
-        # Hermes may print only `mcp__mabc` in the trace while the Handoff
-        # mentions the aggregate retriever by its leaf name. When exactly one
-        # known aggregate retriever is present, recover the full callable name
-        # for UI traceability instead of exposing the truncated server label.
-        aggregate_leafs = re.findall(
-            r"(?i)\b(demo_context_retrieve|document_retrieve|github_retrieve|slack_retrieve|notion_retrieve)\b",
-            text,
-        )
-        aggregate_leafs = list(dict.fromkeys(name.lower() for name in aggregate_leafs))
-        if len(aggregate_leafs) == 1:
-            return [f"mcp__mabc_sources__{aggregate_leafs[0]}"]
-
         trace = re.findall(
             r"(?mi)^.*⚡\s+(mcp[^\s(]+)",
             text,
         )
-        return list(dict.fromkeys(name.rstrip(",:;") for name in trace))
+        trace = list(dict.fromkeys(name.rstrip(",:;") for name in trace))
+
+        full_trace = [
+            name for name in trace
+            if re.match(r"(?i)^mcp__[A-Za-z0-9_]+__[A-Za-z0-9_]+$", name)
+        ]
+        if full_trace:
+            return full_trace
+
+        if handoff:
+            full_handoff = re.findall(
+                r"(?i)\b(mcp__[A-Za-z0-9_]+__[A-Za-z0-9_]+)\b",
+                handoff,
+            )
+            if full_handoff:
+                return list(dict.fromkeys(full_handoff))
+
+            aggregate_leafs = re.findall(
+                r"(?i)\b(demo_context_retrieve|document_retrieve|github_retrieve|slack_retrieve|notion_retrieve)\b",
+                handoff,
+            )
+            aggregate_leafs = list(dict.fromkeys(name.lower() for name in aggregate_leafs))
+            if len(aggregate_leafs) == 1:
+                return [f"mcp__mabc_sources__{aggregate_leafs[0]}"]
+
+        return trace
 
     @staticmethod
     def _count_mcp_calls(text: str) -> int:
@@ -281,6 +288,15 @@ class CliHermesRunner:
     def _sanitize_handoff(handoff: str) -> str:
         """Apply the shared connector-neutral Handoff policy."""
         return sanitize_handoff(handoff)
+
+    @staticmethod
+    def _is_placeholder_handoff(handoff: str) -> bool:
+        """Reject a copied output template with no real task/evidence content."""
+        placeholder_lines = re.findall(
+            r"(?mi)^\s*-\s*(?:\.\.\.|source|<[^>]+>)\s*$",
+            handoff,
+        )
+        return len(placeholder_lines) >= 3
 
     @staticmethod
     def _extract_handoff(text: str) -> str:
@@ -448,7 +464,7 @@ class CliHermesRunner:
 
             result = "\n".join(lines).strip()
 
-            if result:
+            if result and not CliHermesRunner._is_placeholder_handoff(result):
                 return CliHermesRunner._sanitize_handoff(result)
 
         return ""
