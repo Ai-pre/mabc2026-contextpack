@@ -218,7 +218,6 @@ def github_retrieve(
     repository structure. Repeated calls in the same Hermes session reuse the
     cached GitHub snapshot instead of repeating network requests.
     """
-    aggregate_started = time.perf_counter()
     _require_workspace(workspace_id)
     if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
         raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
@@ -1387,6 +1386,7 @@ def workspace_retrieve(
     the current workspace are retrieved. Each registered source is queried at
     most once and independent sources are fetched in parallel.
     """
+    aggregate_started = time.perf_counter()
     _require_workspace(workspace_id)
     if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
         raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
