@@ -313,6 +313,30 @@ def _is_low_value_retrieved_item(text: str) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
 
 
+def _is_crosscheck_only_verify(text: str) -> bool:
+    """Detect VERIFY items that only describe what this retrieval did not cross-check."""
+    has_crosscheck_gap = any(phrase in text for phrase in (
+        "교차 확인하지",
+        "교차 검증하지",
+        "교차 확인 못",
+        "cross-check하지",
+        "cross check하지",
+        "not cross-checked",
+    ))
+    has_retrieval_scope = any(term in text for term in (
+        "retrieval",
+        "retrieve",
+        "이번 조회",
+        "현재 조회",
+        "이 조회",
+    ))
+    has_match_gap = (
+        ("일치 여부" in text or "동일 여부" in text)
+        and any(term in text for term in ("확인하지", "검증하지", "확인되지"))
+    )
+    return has_crosscheck_gap or (has_retrieval_scope and has_match_gap)
+
+
 def _is_generic_coverage_disclaimer(text: str) -> bool:
     patterns = (
         r"위 .* 외.*추가 논의",
@@ -420,7 +444,11 @@ def sanitize_handoff(handoff: str) -> str:
                     continue
 
             if section == "[VERIFY BEFORE USE]":
-                if _is_superseded_history(text) or _is_hypothetical_reopening_gap(text):
+                if (
+                    _is_superseded_history(text)
+                    or _is_hypothetical_reopening_gap(text)
+                    or _is_crosscheck_only_verify(text)
+                ):
                     continue
 
             if section == "[DO NOT ASSUME]":
