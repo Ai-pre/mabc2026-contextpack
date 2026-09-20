@@ -170,9 +170,21 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("실제 reopening evidence가 없으면", prompt)
         self.assertIn("workspace/source 연결 상태와 tool scope는 semantic section에서 제외", prompt)
         self.assertIn("정확한 MCP callable identifier", prompt)
+        self.assertIn("numbered report", prompt)
+        self.assertIn("[SCRIPT_MAP]", prompt)
         self.assertNotIn("## 확인 요구사항", prompt)
         self.assertNotIn("## 공통 Evidence Contract", prompt)
         self.assertLess(len(prompt), 5000)
+
+    def test_context_pack_skill_has_single_exact_output_contract(self):
+        skill_text = (ROOT / "deploy/hermes/skills/context-pack/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("### 최종 Handoff Context 형식 (고정)", skill_text)
+        self.assertIn("[TASK]", skill_text)
+        self.assertIn("[SOURCE MAP]", skill_text)
+        self.assertNotIn("\n## 최종 출력 형식\n", skill_text)
+        self.assertNotIn("## 1. Task", skill_text)
+        self.assertNotIn("[SCRIPT_MAP]", skill_text)
+        self.assertNotIn("[호출 MCP tool]", skill_text)
 
     def test_runtime_prompt_hard_stops_with_one_aggregate_call_in_multi_source_workspace(self):
         workspace_id = self.store.create_workspace("GitHub + Slack")["workspace_id"]
