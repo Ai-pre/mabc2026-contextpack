@@ -12,6 +12,7 @@ mcp_servers:
       - /app/mabc_mcp_scoped_server.py
     env:
       CONTEXTPACK_WORKSPACE_ID: "${CONTEXTPACK_WORKSPACE_ID}"
+      CONTEXTPACK_RUN_ID: "${CONTEXTPACK_RUN_ID}"
       GITHUB_MCP_TOKEN: "${GITHUB_MCP_TOKEN}"
       SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}"
       NOTION_API_KEY: "${NOTION_API_KEY}"
