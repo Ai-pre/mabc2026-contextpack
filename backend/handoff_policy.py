@@ -260,6 +260,19 @@ def _is_provenance_only_item(text: str) -> bool:
     return bool(re.match(r"^-?\s*(?:근거|source|출처)\s*:", text))
 
 
+def _is_degenerate_semantic_label(text: str) -> bool:
+    label = re.sub(r"^-?\s*", "", text).strip(" .:")
+    return label in {
+        "최종 결정",
+        "최종 확정",
+        "확정",
+        "final decision",
+        "final",
+        "approved",
+        "resolved",
+    }
+
+
 def _count_final_signals(items: list[str]) -> int:
     return sum(
         sum(text.count(marker) for marker in FINAL_MARKERS)
@@ -308,6 +321,8 @@ def _is_low_value_retrieved_item(text: str) -> bool:
         r"채널에?.*참여(?:했|함|했다)",
         r"결정 근거로는? 미사용",
         r"join message",
+        r"join events?",
+        r"member join events?",
         r"joined (?:the )?channel",
     )
     return any(re.search(pattern, text) for pattern in patterns)
@@ -433,6 +448,9 @@ def sanitize_handoff(handoff: str) -> str:
                 continue
 
             if section in semantic_sections and _is_provenance_only_item(text):
+                continue
+
+            if section in semantic_sections and _is_degenerate_semantic_label(text):
                 continue
 
             if section == "[UNRESOLVED CONFLICTS]":
