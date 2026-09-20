@@ -310,8 +310,9 @@ class AnalysisTests(unittest.TestCase):
 - mcp__mabc_sources__slack_retrieve(workspace_id=ws_x, channel=C012ABCDEF)
 """
         self.assertEqual(CliHermesRunner._count_mcp_calls(stdout), 1)
+        handoff = CliHermesRunner._extract_handoff(stdout)
         self.assertEqual(
-            CliHermesRunner._extract_mcp_tools(stdout),
+            CliHermesRunner._extract_mcp_tools(stdout, handoff=handoff),
             ["mcp__mabc_sources__slack_retrieve"],
         )
 
@@ -334,10 +335,64 @@ class AnalysisTests(unittest.TestCase):
 [SOURCE MAP]
 - Slack channel C012ABCDEF, message ts 1789840639.185659
 """
+        handoff = CliHermesRunner._extract_handoff(stdout)
         self.assertEqual(
-            CliHermesRunner._extract_mcp_tools(stdout),
+            CliHermesRunner._extract_mcp_tools(stdout, handoff=handoff),
             ["mcp__mabc_sources__slack_retrieve"],
         )
+
+    def test_mcp_trace_ignores_prompt_examples_not_actually_called(self):
+        trace = """prompt example: mcp__mabc_sources__slack_retrieve(...)
+⚡ mcp__mabc
+"""
+        handoff = """[TASK]
+- GitHub 변경 정리
+[MUST KNOW]
+- PR #1 merged
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__github_retrieve(workspace_id=ws_x, repository=owner/repo)
+"""
+        self.assertEqual(
+            CliHermesRunner._extract_mcp_tools(trace, handoff=handoff),
+            ["mcp__mabc_sources__github_retrieve"],
+        )
+
+    def test_handoff_parser_rejects_placeholder_template(self):
+        stdout = """[TASK]
+- ...
+
+[MUST KNOW]
+- ...
+
+[CONSTRAINTS]
+- None
+
+[USEFUL IF SPACE ALLOWS]
+- ...
+
+[UNRESOLVED CONFLICTS]
+- None
+
+[VERIFY BEFORE USE]
+- ...
+
+[DO NOT ASSUME]
+- ...
+
+[SOURCE MAP]
+- source
+"""
+        self.assertEqual(CliHermesRunner._extract_handoff(stdout), "")
 
     def test_invalid_or_empty_workspace_never_launches_runner(self):
         empty = self.store.create_workspace()["workspace_id"]
