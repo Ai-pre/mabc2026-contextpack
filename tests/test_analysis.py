@@ -318,6 +318,38 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn("등록된 channel만 사용", cleaned)
         self.assertNotIn("연결된 page만 사용", cleaned)
 
+    def test_handoff_sanitizer_resolves_split_claim_a_b_tentative_to_final(self):
+        raw = """[TASK]
+- MCP 및 배포 결정 정리
+[MUST KNOW]
+- Slack connector는 read-only다.
+- 근거: slack C1/123
+[CONSTRAINTS]
+- 등록된 Workspace Source만 근거로 사용한다(이 workspace: github owner/repo, slack C1).
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- Claim A: 다음 배포는 금요일로 논의 중 (slack 1789840639.185659, U1)
+- Claim B: 다음 배포는 토요일로 최종 결정 (slack 1789840639.185659, U1)
+[VERIFY BEFORE USE]
+- 근거: github PR2 metadata (state: open, draft: true)
+[DO NOT ASSUME]
+- Slack 채널 외 다른 배포 일정/환경변수/설정값이 추가로 확정되어 있다는 사실.
+[SOURCE MAP]
+- slack:C1/123 — 결정 메시지
+- slack:C1/999 — 채널 참여 이벤트(수신되었으나 결정 근거로는 미사용)
+- mcp__mabc_sources__workspace_retrieve(workspace_id=ws_x, source_types=github,slack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("다음 배포는 토요일로 최종 결정", cleaned)
+        self.assertNotIn("다음 배포는 금요일로 논의 중", cleaned)
+        self.assertIn("[UNRESOLVED CONFLICTS]\n- None", cleaned)
+        self.assertIn("[VERIFY BEFORE USE]\n- None", cleaned)
+        self.assertIn("[DO NOT ASSUME]\n- None", cleaned)
+        self.assertNotIn("- 근거:", cleaned)
+        self.assertNotIn("등록된 Workspace Source만", cleaned)
+        self.assertNotIn("채널 참여 이벤트", cleaned)
+
     def test_handoff_sanitizer_drops_explicitly_irrelevant_retrieved_items_everywhere(self):
         raw = """[TASK]
 - 배포 결정 정리
