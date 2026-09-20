@@ -443,7 +443,8 @@ def build_agent_prompt(req, workspace=None):
    - 같은 topic의 tentative 안이 뒤의 final 결정으로 명시적으로 대체되었고 reopening 근거가 없다면, 그 topic은 VERIFY BEFORE USE에서 다시 언급하지 않는다. 이 경우 VERIFY BEFORE USE는 다른 검증 필요 사실이 없으면 반드시 `- None`이다.
    - final 결정의 세부사항(예: 정확한 시각, 담당자, 대상 환경)이 source에 없으면 final 결정 자체를 불확실하게 만들지 말고
      확인되지 않은 세부사항만 DO NOT ASSUME으로 분리한다.
-   - final 이후 "재논의/재검토/결정 보류/번복" 같은 reopening signal이 있으면 현재 상태를 다시 검증한다.
+   - final 이후 "재논의/재검토/결정 보류/번복" 같은 **실제 evidence**가 있으면 현재 상태를 다시 검증한다.
+   - 반대로 "이후 번복이 있었을 수도 있음", "추가 재조정이 있었는지 여부", "최종 결정 뒤 다른 변경이 있었는지 확인되지 않음"처럼 **reopening evidence 없이 가능성만 상정하는 문장**은 VERIFY/MISSING이 아니다. 이런 가상 reopening을 만들지 않는다.
    - 실제 CONFLICT인 경우 그 fact의 어느 한쪽 값도 MUST KNOW/CONSTRAINTS에 확정 사실로 쓰지 않는다.
    - 더 늦은 날짜만으로 승자를 정하지 않는다. 명시적인 권위/승인 우선순위 근거가 없으면 unresolved 상태를 유지한다.
 
