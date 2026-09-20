@@ -73,7 +73,8 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs, {"workspace_id": "demo", "github_enabled": False})
         prompt = run.call_args.args[0]
         self.assertIn("demo_context_retrieve", prompt)
-        self.assertIn("실제 CONFLICT인 경우 그 fact의 어느 한쪽 값도 MUST KNOW/CONSTRAINTS에 확정 사실로 쓰지 않는다", prompt)
+        self.assertIn("context-pack Skill을 single source of truth", prompt)
+        self.assertLess(len(prompt), 5000)
 
     def test_uploaded_workspace_passes_scope_without_raw_documents(self):
         workspace_id = self.store.create_workspace("Upload test")["workspace_id"]
@@ -86,7 +87,7 @@ class AnalysisTests(unittest.TestCase):
         prompt = run.call_args.args[0]
         self.assertIn(workspace_id, prompt)
         self.assertIn("document_retrieve", prompt)
-        self.assertIn("document_search", prompt)
+        self.assertNotIn("document_search", prompt)
         self.assertNotIn("github_search", prompt)
         self.assertNotIn(raw.decode("utf-8").strip(), prompt)
         self.assertEqual(self.store.get_workspace(workspace_id)["task"], "Review changes")
@@ -104,9 +105,10 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(run.call_args.kwargs, {"workspace_id": workspace_id, "github_enabled": True})
         prompt = run.call_args.args[0]
         self.assertIn("Ai-pre/mabc2026-contextpack", prompt)
+        self.assertIn("GitHub-only", prompt)
         self.assertIn("github_retrieve", prompt)
-        self.assertIn("aggregate", prompt)
-        self.assertIn("다른 repository를 근거로 사용하지 않는다", prompt)
+        self.assertIn("Ai-pre/mabc2026-contextpack", prompt)
+        self.assertIn("등록된 Workspace Source만 근거로 사용", prompt)
 
     def test_slack_only_workspace_forces_one_retrieve_then_stop(self):
         workspace_id = self.store.create_workspace("Slack only")["workspace_id"]
@@ -120,8 +122,8 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         prompt = run.call_args.args[0]
         self.assertIn("이 Workspace는 Slack-only다", prompt)
-        self.assertIn("slack_retrieve를 필요한 channel당 정확히 1회", prompt)
-        self.assertIn("다른 MCP tool을 탐색하거나 재호출하지 않는다", prompt)
+        self.assertIn("slack_retrieve", prompt)
+        self.assertIn("정확히 1회 호출하고 즉시 Handoff", prompt)
         self.assertNotIn("demo_context_retrieve", prompt)
         self.assertNotIn("slack_search/get", prompt)
 
@@ -144,10 +146,10 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("12345678-1234-1234-1234-123456789abc", prompt)
         self.assertIn("workspace_retrieve", prompt)
         self.assertIn("source_types", prompt)
-        self.assertIn("Slack 근거는 이 channel들의 slack_retrieve 결과로만 제한한다", prompt)
-        self.assertIn("Notion 근거는 이 page들의 notion_retrieve 결과로만 제한한다", prompt)
-        self.assertIn("workspace_retrieve를 정확히 1회 호출", prompt)
-        self.assertIn("github_retrieve/slack_retrieve/notion_retrieve/document_retrieve를 별도로 호출하지 않는다", prompt)
+        self.assertIn("C012ABCDEF", prompt)
+        self.assertIn("12345678-1234-1234-1234-123456789abc", prompt)
+        self.assertIn("정확히 1회 호출", prompt)
+        self.assertNotIn("live GitHub repository가 연결되어 있지 않다", prompt)
 
     def test_runtime_prompt_distinguishes_tentative_from_final_decisions(self):
         workspace_id = self.store.create_workspace("Slack finality")["workspace_id"]
@@ -160,36 +162,17 @@ class AnalysisTests(unittest.TestCase):
             })
         self.assertEqual(response.status_code, 200, response.text)
         prompt = run.call_args.args[0]
-        self.assertIn("논의 중/검토 중/제안/초안/예정/후보", prompt)
-        self.assertIn("최종 결정/확정/승인/적용 결정/취소", prompt)
-        self.assertIn("Source silence is not conflict", prompt)
-        self.assertIn("별도 corroboration이 없다는 이유만으로 VERIFY/CONFLICT로 내리지 않는다", prompt)
-        self.assertIn("둘은 CONFLICT가 아니다", prompt)
-        self.assertIn("Finality 보존", prompt)
-        self.assertIn("일반적인 가능성만으로 그 결정을 VERIFY BEFORE USE에 다시 넣지 않는다", prompt)
-        self.assertIn("그 topic은 VERIFY BEFORE USE에서 다시 언급하지 않는다", prompt)
-        self.assertIn("VERIFY BEFORE USE는 다른 검증 필요 사실이 없으면 반드시", prompt)
-        self.assertIn("확인되지 않은 세부사항만 DO NOT ASSUME", prompt)
-        self.assertIn("final 결정에 의해 명시적으로 대체된 tentative/candidate 안은 MISSING이 아니다", prompt)
-        self.assertIn("가상의 가능성을 새 MISSING으로 만들지 않는다", prompt)
-        self.assertIn("Retrieval mechanics ≠ Handoff context", prompt)
-        self.assertIn("Analysis workspace state ≠ Project evidence", prompt)
-        self.assertIn("현재 분석 실행의 연결 상태는 프로젝트 사실이 아니다", prompt)
-        self.assertIn("이번 실행의 Source 등록/미연결 상태", prompt)
-        self.assertIn("Source allowlist 문장도 동일하게 retrieval execution metadata", prompt)
-        self.assertIn("PR #2가 open draft", prompt)
-        self.assertIn("공통 Evidence Contract", prompt)
-        self.assertIn("evidence_schema_version", prompt)
-        self.assertIn("source_type마다 별도의 Handoff 품질 규칙을 만들지 않는다", prompt)
-        self.assertIn("다음 작업의 판단/구현을 바꾸는 현재 사실·최근 결정·필수 제약", prompt)
-        self.assertIn("최근 변경사항을 MUST KNOW에 우선 배치", prompt)
-        self.assertNotIn("Multi-source hard stop", prompt)
-        self.assertIn("Slack-only다", prompt)
-        self.assertIn("ContextPack 내부 retrieval 제약은 넣지 않는다", prompt)
-        self.assertIn("보편적인 불확실성/면책 문구는 MISSING이 아니므로", prompt)
+        self.assertIn("context-pack Skill을 single source of truth", prompt)
+        self.assertIn("finality preflight", prompt)
+        self.assertIn("tentative→명시적 final 대체는 conflict가 아니고", prompt)
+        self.assertIn("Source silence도 conflict가 아니다", prompt)
+        self.assertIn("final↔final만 UNRESOLVED CONFLICTS", prompt)
+        self.assertIn("실제 reopening evidence가 없으면", prompt)
+        self.assertIn("workspace/source 연결 상태와 tool scope는 semantic section에서 제외", prompt)
         self.assertIn("정확한 MCP callable identifier", prompt)
-        self.assertIn("실제 evidence", prompt)
-        self.assertIn("가상 reopening을 만들지 않는다", prompt)
+        self.assertNotIn("## 확인 요구사항", prompt)
+        self.assertNotIn("## 공통 Evidence Contract", prompt)
+        self.assertLess(len(prompt), 5000)
 
     def test_runtime_prompt_hard_stops_with_one_aggregate_call_in_multi_source_workspace(self):
         workspace_id = self.store.create_workspace("GitHub + Slack")["workspace_id"]
@@ -207,10 +190,12 @@ class AnalysisTests(unittest.TestCase):
         prompt = run.call_args.args[0]
         self.assertIn("workspace_retrieve", prompt)
         self.assertIn("source_types", prompt)
-        self.assertIn("Multi-source hard stop", prompt)
-        self.assertIn("MCP surface에는 workspace_retrieve만 노출된다", prompt)
-        self.assertIn("workspace_retrieve를 정확히 1회 호출", prompt)
-        self.assertIn("첫 결과만으로 즉시 최종 Handoff를 작성한다", prompt)
+        self.assertIn("Workspace의 MCP source surface는 workspace_retrieve 하나", prompt)
+        self.assertIn("workspace_retrieve(workspace_id, query, source_types)", prompt)
+        self.assertIn("정확히 1회 호출", prompt)
+        self.assertIn("추가 retrieval 없이 즉시 Handoff", prompt)
+        self.assertNotIn("Finality 보존 규칙", prompt)
+        self.assertLess(len(prompt), 5000)
 
     def test_handoff_sanitizer_removes_retrieval_noise_and_superseded_verify(self):
         raw = """[TASK]
