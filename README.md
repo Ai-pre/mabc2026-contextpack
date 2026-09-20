@@ -114,6 +114,17 @@ notion_search   / notion_get
 
 GitHub/Slack/Notion은 모두 retrieve-first Connector 패턴을 사용합니다. Agent가 granular search/get loop를 길게 반복하는 대신 Source별 aggregate retriever가 Task-relevant evidence bundle을 반환하고, ContextPack Skill이 이를 분류·압축합니다. 공식 GitHub Remote MCP는 정확한 세부 확인이 필요한 경우에만 opt-in fallback으로 남겨둡니다.
 
+### Common Evidence Contract
+
+Live connectors와 uploaded-document retriever는 provider별 원본 필드를 유지하면서 공통 `evidence[]`도 반환합니다.
+
+```text
+evidence_id · source_type · kind · source_ref
+content · timestamp · author · metadata
+```
+
+Connector별 차이는 **어떻게 근거를 가져오는가**에만 둡니다. 그 이후 tentative/final, conflict, stale, missing, least-context 판단은 하나의 ContextPack Handoff Policy를 공유합니다. 새 connector를 추가할 때도 별도의 Handoff 품질 규칙을 만들지 않는 것이 원칙입니다.
+
 ## Real Workspace Path
 
 The production-oriented path is source-driven rather than demo-specific.
