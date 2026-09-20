@@ -382,6 +382,15 @@ def build_agent_prompt(req, workspace=None):
 - 검색되지 않은 정보는 모델의 기억이나 일반 상식으로 채우지 않는다. 합리적인 조회 후에도 없으면 DO NOT ASSUME으로 남긴다.
 - **Retrieval mechanics ≠ Handoff context:** workspace_id, 등록 Source 범위, connector 유무, MCP tool 이름/호출 횟수, "다른 채널을 탐색하지 않는다" 같은 접근 제어 규칙은 근거 수집을 위한 내부 실행 규칙이다. 이를 [MUST KNOW], [CONSTRAINTS], [USEFUL IF SPACE ALLOWS], [VERIFY BEFORE USE], [DO NOT ASSUME]에 복사하지 않는다. 필요한 경우 [SOURCE MAP]과 실행 trace에만 남긴다.
 
+## 공통 Evidence Contract
+
+- aggregate retrieve tool은 provider별 원본 필드와 함께 `evidence_schema_version` 및 공통 `evidence[]`를 반환한다.
+- 각 evidence item의 의미 필드는 `evidence_id / source_type / kind / source_ref / content / timestamp / author / metadata`다.
+- Handoff 의미 판단은 provider 이름이 아니라 `evidence[].content`와 provenance/timestamp/metadata를 기준으로 수행한다.
+- Slack/GitHub/Notion/Document/Jira 등 source_type은 **출처 추적용**이며, source_type마다 별도의 Handoff 품질 규칙을 만들지 않는다.
+- 같은 tentative/final/conflict/stale/missing 규칙을 모든 evidence item에 동일하게 적용한다.
+- provider-specific envelope 필드(messages, blocks, recent_commits 등)는 디버깅/세부 근거용이다. 공통 evidence가 있으면 우선 evidence를 기준으로 Context Item을 만든다.
+
 ## 확인 요구사항
 
 검색한 후보 Context를 바탕으로 context-pack Skill이 최종 Handoff Context를 만들 때,
@@ -396,8 +405,8 @@ def build_agent_prompt(req, workspace=None):
      하나를 임의로 선택하지 말고 UNRESOLVED CONFLICT로 남긴다.
    - "논의 중/검토 중/제안/초안/예정/후보"는 tentative이고,
      "최종 결정/확정/승인/적용 결정/취소"는 final/authoritative 표현이다.
-   - 같은 decision topic에서 tentative 안과 final 결정이 함께 있고 final이 그 안을 확정·대체·취소하는 관계라면
-     둘은 CONFLICT가 아니다. final 결정을 현재 상태로 MUST KNOW에 쓰고 tentative 안은 필요할 때만 과거 논의로 남긴다.
+   - 같은 decision topic에서 tentative claim과 final claim이 함께 있고 final이 이전 안을 확정·대체·취소하는 관계라면
+     둘은 CONFLICT가 아니다. final claim을 현재 상태로 MUST KNOW에 쓰고 tentative claim은 필요할 때만 과거 배경으로 남긴다.
    - **Finality 보존:** source 안에 명시적 final/authoritative 표현이 있고 그 이후 reopening/conflict/stale 근거가 없다면,
      "현실에서 나중에 바뀔 수 있다"는 일반적인 가능성만으로 그 결정을 VERIFY BEFORE USE에 다시 넣지 않는다.
    - 같은 topic의 tentative 안이 뒤의 final 결정으로 명시적으로 대체되었고 reopening 근거가 없다면, 그 topic은 VERIFY BEFORE USE에서 다시 언급하지 않는다. 이 경우 VERIFY BEFORE USE는 다른 검증 필요 사실이 없으면 반드시 `- None`이다.
