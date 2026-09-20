@@ -187,6 +187,8 @@ Handoff Context에서는 다음처럼 분리해 전달한다:
 #### Conflict Isolation Invariant
 동일한 사실/정책/숫자에 대해 서로 양립할 수 없는 **확정 표현**이 둘 이상 존재하면, 그 사실 전체를 `CONFLICT`로 격리한다.
 
+**Source silence is not conflict.** 한 Source에 명시적 claim이 있고 다른 Source가 그 topic을 언급하지 않거나 검색 결과에 없다는 사실은 상충 claim이 아니다. "다른 Source에서 확인되지 않음", "교차 검증 실패", "corroboration 없음"만으로 `UNRESOLVED CONFLICTS`를 만들지 않는다. 한 Source의 explicit final claim에 반대되는 final claim이 없다면 provenance를 붙여 현재 상태로 사용할 수 있다.
+
 **확정성 수준을 먼저 비교한다.** 아래처럼 확정성 수준이 다른 두 문장은 원칙적으로 CONFLICT가 아니다.
 
 - tentative / candidate: "논의 중", "검토 중", "제안", "초안", "예정", "후보", "고려 중"
@@ -286,6 +288,7 @@ Step 1의 Context Requirement Map 각각에 대해 `FOUND / PARTIAL / MISSING` �
 - "현재 retrieve 결과 밖에 추가 정보가 있을 수 있다"
 - "추가 확인이 안전하다"
 - ContextPack이 접근하지 않은 Source가 존재할 가능성
+- "한 개 메시지에서만 확인됨", "다른 채널은 조회하지 않음", "별도 충돌 근거를 찾지 못함" 같은 retrieval coverage 상태
 
 이런 문장은 모든 retrieval에 붙일 수 있는 일반적 불확실성일 뿐 Task-critical missing fact가 아니다.
 Task-critical missing fact가 실제로 하나도 없으면 coverage gap을 만들어 채우지 말고 `[DO NOT ASSUME]`을 `- None`으로 둔다.
