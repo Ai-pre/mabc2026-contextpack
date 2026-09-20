@@ -381,6 +381,9 @@ def build_agent_prompt(req, workspace=None):
 - **Stop early:** 충분한 Evidence를 확보한 뒤 같은 사실을 재검색하지 않는다.
 - 검색되지 않은 정보는 모델의 기억이나 일반 상식으로 채우지 않는다. 합리적인 조회 후에도 없으면 DO NOT ASSUME으로 남긴다.
 - **Retrieval mechanics ≠ Handoff context:** workspace_id, 등록 Source 범위, connector 유무, MCP tool 이름/호출 횟수, "다른 채널을 탐색하지 않는다" 같은 접근 제어 규칙은 근거 수집을 위한 내부 실행 규칙이다. 이를 [MUST KNOW], [CONSTRAINTS], [USEFUL IF SPACE ALLOWS], [VERIFY BEFORE USE], [DO NOT ASSUME]에 복사하지 않는다. 필요한 경우 [SOURCE MAP]과 실행 trace에만 남긴다.
+- **Analysis workspace state ≠ Project evidence:** "현재 이 workspace는 GitHub-only다", "Slack/Notion이 연결되어 있지 않다", "이 source는 현재 workspace에서 사용할 수 없다" 같은 현재 분석 실행의 연결 상태는 프로젝트 사실이 아니다. 이런 문장은 semantic Handoff의 어느 섹션에도 넣지 않는다.
+- 반대로 repository/문서 자체가 말하는 제품 기능, 배포 상태, PR 상태, 코드 구조는 Project evidence다. 예: "PR #2가 open draft"는 VERIFY 대상이 될 수 있지만, "현재 분석 workspace에 Slack source가 없다"는 VERIFY/MISSING 대상이 아니다.
+- 하나의 문장에 analysis workspace metadata와 project uncertainty를 섞지 않는다. 프로젝트 근거만 별도 문장으로 남기고 실행 메타데이터는 버린다.
 
 ## 공통 Evidence Contract
 
