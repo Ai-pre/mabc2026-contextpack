@@ -323,7 +323,6 @@ class AnalysisTests(unittest.TestCase):
             "- Slack 환경변수명은 Slack 메시지로만 확인했고 GitHub 코드와의 일치 여부는 "
             "이 retrieval 단계에서 교차 확인하지 않았다."
         )
-        self.assertTrue(api.sanitize_handoff if False else True)
         from backend.handoff_policy import _is_crosscheck_only_verify
         self.assertTrue(_is_crosscheck_only_verify(text.casefold()))
 
