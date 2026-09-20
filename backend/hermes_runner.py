@@ -335,7 +335,13 @@ class CliHermesRunner:
 
     @staticmethod
     def _count_mcp_calls(text: str) -> int:
-        """Count actual MCP call trace events, independent of display names."""
+        """Count MCP trace events without double-counting truncated/full mirrors."""
+        full = re.findall(
+            r"(?mi)^.*⚡\s+mcp__[A-Za-z0-9_]+__[A-Za-z0-9_]+\b",
+            text,
+        )
+        if full:
+            return len(full)
         return len(
             re.findall(
                 r"(?mi)^.*⚡\s+mcp(?:__|_)",
