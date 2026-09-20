@@ -400,6 +400,7 @@ def build_agent_prompt(req, workspace=None):
      둘은 CONFLICT가 아니다. final 결정을 현재 상태로 MUST KNOW에 쓰고 tentative 안은 필요할 때만 과거 논의로 남긴다.
    - **Finality 보존:** source 안에 명시적 final/authoritative 표현이 있고 그 이후 reopening/conflict/stale 근거가 없다면,
      "현실에서 나중에 바뀔 수 있다"는 일반적인 가능성만으로 그 결정을 VERIFY BEFORE USE에 다시 넣지 않는다.
+   - 같은 topic의 tentative 안이 뒤의 final 결정으로 명시적으로 대체되었고 reopening 근거가 없다면, 그 topic은 VERIFY BEFORE USE에서 다시 언급하지 않는다. 이 경우 VERIFY BEFORE USE는 다른 검증 필요 사실이 없으면 반드시 `- None`이다.
    - final 결정의 세부사항(예: 정확한 시각, 담당자, 대상 환경)이 source에 없으면 final 결정 자체를 불확실하게 만들지 말고
      확인되지 않은 세부사항만 DO NOT ASSUME으로 분리한다.
    - final 이후 "재논의/재검토/결정 보류/번복" 같은 reopening signal이 있으면 현재 상태를 다시 검증한다.
@@ -412,6 +413,7 @@ def build_agent_prompt(req, workspace=None):
    - superseded tentative는 Task 이해에 꼭 필요할 때만 USEFUL IF SPACE ALLOWS에 과거 논의로 짧게 남기고, 필요 없으면 완전히 제외한다.
    - DO NOT ASSUME에는 현재 Task 수행에 실제로 필요한데 근거가 없는 세부사항만 넣는다.
    - "다른 채널/문서에 추가 논의가 있을 수 있다", "현재 retrieve 밖에 더 많은 정보가 있을 수 있다", "추가 확인이 안전하다" 같은 보편적인 불확실성/면책 문구는 MISSING이 아니므로 DO NOT ASSUME에 넣지 않는다.
+   - Task-critical missing fact가 하나도 없으면 억지로 coverage gap을 만들지 말고 DO NOT ASSUME을 반드시 `- None`으로 둔다.
 
 4. **Irrelevant (현재 Task와 무관한 정보)**
    - 현재 Role과 Task에 무관한 정보는 ContextPack에 포함하지 않는다.
