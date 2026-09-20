@@ -219,6 +219,12 @@ def build_agent_prompt(req, workspace=None):
     uploaded_document_count = sum(
         source.get("source_type") == "upload" for source in sources
     )
+    active_source_kinds = (
+        (1 if uploaded_document_count else 0)
+        + (1 if github_repositories else 0)
+        + (1 if slack_channels else 0)
+        + (1 if notion_pages else 0)
+    )
 
     scope = json.dumps({
         "workspace_id": workspace["workspace_id"],
@@ -239,22 +245,27 @@ def build_agent_prompt(req, workspace=None):
             "mabc-sources demo detail tools: github_search/get, jira_search/get, slack_search/get, notion_search/get"
         )
     else:
-        if uploaded_document_count:
+        if active_source_kinds > 1:
             tools_available.append(
-                "mabc-sources document_retrieve (preferred), document_search, document_get"
+                "mabc-sources workspace_retrieve (required multi-source aggregate fast path)"
             )
-        if github_repositories:
-            tools_available.append(
-                "mabc-sources github_retrieve (preferred live GitHub fast path)"
-            )
-        if slack_channels:
-            tools_available.append(
-                "mabc-sources slack_retrieve (preferred live Slack channel fast path)"
-            )
-        if notion_pages:
-            tools_available.append(
-                "mabc-sources notion_retrieve (preferred live Notion page fast path)"
-            )
+        else:
+            if uploaded_document_count:
+                tools_available.append(
+                    "mabc-sources document_retrieve (preferred), document_search, document_get"
+                )
+            if github_repositories:
+                tools_available.append(
+                    "mabc-sources github_retrieve (preferred live GitHub fast path)"
+                )
+            if slack_channels:
+                tools_available.append(
+                    "mabc-sources slack_retrieve (preferred live Slack channel fast path)"
+                )
+            if notion_pages:
+                tools_available.append(
+                    "mabc-sources notion_retrieve (preferred live Notion page fast path)"
+                )
         if github_repositories and os.environ.get("GITHUB_REMOTE_MCP_ENABLED", "") == "1":
             tools_available.append(
                 "github-live MCP detail tools (optional fallback only)"
@@ -271,33 +282,45 @@ def build_agent_prompt(req, workspace=None):
 - 특정 원문 세부 확인이 꼭 필요할 때만 demo detail tool을 최대 1회 추가한다.
 """
     else:
-        live_rules = []
-        if uploaded_document_count:
-            live_rules.append(
-                "- 업로드 문서가 현재 Task에 관련되면 document_retrieve(workspace_id, query)를 우선 1회 사용한다. "
-                "결과가 0건이거나 핵심 근거가 부족할 때만 query를 바꿔 최대 1회 보충한다."
-            )
-        if github_repositories:
-            live_rules.append(
-                "- GitHub가 관련되면 연결된 repository마다 github_retrieve(workspace_id, query, repository)를 최대 1회 사용한다. "
-                "aggregate 결과로 충분하면 granular PR/commit/code 탐색을 중단한다."
-            )
-        if slack_channels:
-            live_rules.append(
-                "- Slack이 관련되면 연결된 channel마다 slack_retrieve(workspace_id, query, channel)를 최대 1회 사용한다. "
-                "등록되지 않은 채널이나 workspace 전체를 임의로 탐색하지 않는다."
-            )
-        if notion_pages:
-            live_rules.append(
-                "- Notion이 관련되면 연결된 page마다 notion_retrieve(workspace_id, query, page_id)를 최대 1회 사용한다. "
-                "등록되지 않은 페이지를 임의로 탐색하지 않는다."
-            )
-        source_instructions = """
+        if active_source_kinds > 1:
+            source_instructions = """
+## 필수 Source 조회
+
+- Role과 Task를 먼저 보고 등록 Source 중 실제로 관련된 Source 종류만 고른다.
+- 여러 Source 종류가 필요하면 `workspace_retrieve(workspace_id, query, source_types)`를 **정확히 1회** 호출한다.
+- source_types에는 현재 Task에 실제로 필요한 종류만 comma-separated로 넣는다. 예: `github,slack`.
+- workspace_retrieve 결과의 공통 evidence[]와 retrievals[]만 사용해 즉시 Handoff를 작성한다.
+- github_retrieve/slack_retrieve/notion_retrieve/document_retrieve를 별도로 호출하지 않는다.
+- granular search/get, terminal, read_file, search_files, web_search로 추가 확인하지 않는다.
+- 한 Source가 해당 topic을 언급하지 않거나 evidence가 비어 있어도 재검색하지 않는다.
+"""
+        else:
+            live_rules = []
+            if uploaded_document_count:
+                live_rules.append(
+                    "- 업로드 문서가 현재 Task에 관련되면 document_retrieve(workspace_id, query)를 우선 1회 사용한다. "
+                    "결과가 0건이거나 핵심 근거가 부족할 때만 query를 바꿔 최대 1회 보충한다."
+                )
+            if github_repositories:
+                live_rules.append(
+                    "- GitHub가 관련되면 연결된 repository마다 github_retrieve(workspace_id, query, repository)를 최대 1회 사용한다. "
+                    "aggregate 결과로 충분하면 granular PR/commit/code 탐색을 중단한다."
+                )
+            if slack_channels:
+                live_rules.append(
+                    "- Slack이 관련되면 연결된 channel마다 slack_retrieve(workspace_id, query, channel)를 최대 1회 사용한다. "
+                    "등록되지 않은 채널이나 workspace 전체를 임의로 탐색하지 않는다."
+                )
+            if notion_pages:
+                live_rules.append(
+                    "- Notion이 관련되면 연결된 page마다 notion_retrieve(workspace_id, query, page_id)를 최대 1회 사용한다. "
+                    "등록되지 않은 페이지를 임의로 탐색하지 않는다."
+                )
+            source_instructions = """
 ## 필수 Source 조회
 
 - Role과 Task를 먼저 보고 등록 Source 중 실제로 관련된 Source만 선택한다.
 - 최종 Handoff 전에는 최소 1개의 실제 source retrieve tool result가 있어야 한다.
-- 서로 독립적인 여러 Source가 모두 필요하면 가능한 경우 같은 agent turn에서 병렬 호출한다.
 - 같은 Source를 '더 확실히 하기 위해' 반복 조회하지 않는다.
 - connector가 권한/접근 문제로 근거를 반환하지 못하면 다른 미등록 Source로 우회하지 말고 VERIFY BEFORE USE 또는 DO NOT ASSUME에 남긴다.
 """ + "\n".join(live_rules)
@@ -326,12 +349,6 @@ def build_agent_prompt(req, workspace=None):
         source_rules.append("- live Notion page가 연결되어 있지 않다. notion_retrieve를 사용하지 않는다.")
     source_rules_text = "\n".join(source_rules)
 
-    active_source_kinds = (
-        (1 if uploaded_document_count else 0)
-        + (1 if github_repositories else 0)
-        + (1 if slack_channels else 0)
-        + (1 if notion_pages else 0)
-    )
     single_source_rule = ""
     multi_source_rule = ""
     if not workspace["is_demo"] and active_source_kinds == 1:
@@ -357,11 +374,10 @@ def build_agent_prompt(req, workspace=None):
             )
     elif not workspace["is_demo"] and active_source_kinds > 1:
         multi_source_rule = (
-            "\n- **Multi-source hard stop:** 현재 Task에 필요한 Source 종류를 먼저 고른다. "
-            "선택한 각 aggregate retrieve tool을 Source당 정확히 1회만 호출하고, 가능하면 같은 turn에서 병렬 호출한다. "
-            "선택한 Source들의 첫 결과를 모두 받으면 추가 tool call 없이 즉시 최종 Handoff를 작성한다. "
-            "같은 retrieve tool 재호출, granular search/get fallback, terminal/read_file/search_files/web_search 호출은 금지한다. "
-            "한 Source가 비어 있거나 다른 Source가 그 topic을 언급하지 않아도 재검색하지 않는다."
+            "\n- **Multi-source hard stop:** workspace_retrieve를 정확히 1회 호출한다. "
+            "개별 github_retrieve/slack_retrieve/notion_retrieve/document_retrieve를 추가 호출하지 않는다. "
+            "workspace_retrieve가 선택된 Source들을 내부에서 병렬로 한 번씩 조회한다. "
+            "그 첫 결과를 받으면 추가 tool call 없이 즉시 최종 Handoff를 작성한다."
         )
 
     return f"""나는 {req.role}다.
