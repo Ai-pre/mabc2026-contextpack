@@ -169,6 +169,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("Retrieval mechanics ≠ Handoff context", prompt)
         self.assertIn("Analysis workspace state ≠ Project evidence", prompt)
         self.assertIn("현재 분석 실행의 연결 상태는 프로젝트 사실이 아니다", prompt)
+        self.assertIn("Source allowlist 문장도 동일하게 retrieval execution metadata", prompt)
         self.assertIn("PR #2가 open draft", prompt)
         self.assertIn("공통 Evidence Contract", prompt)
         self.assertIn("evidence_schema_version", prompt)
@@ -238,6 +239,32 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn("현재 workspace에서는 github_retrieve만", cleaned)
         self.assertNotIn("현재 이 workspace에 Slack source", cleaned)
         self.assertNotIn("Slack/Notion이 이 workspace에서 현재 사용 가능한지", cleaned)
+
+    def test_handoff_sanitizer_removes_source_allowlist_constraints(self):
+        raw = """[TASK]
+- 최근 변경 정리
+[MUST KNOW]
+- PR #1은 merged됐다.
+[CONSTRAINTS]
+- GitHub 근거는 연결된 repository(Ai-pre/mabc2026-contextpack)만 사용하며, 다른 repository를 근거로 쓰지 않는다.
+- Slack 근거는 등록된 channel만 사용한다.
+- Notion 근거는 연결된 page만 사용한다.
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__github_retrieve(workspace_id=ws_x, repository=Ai-pre/mabc2026-contextpack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("[CONSTRAINTS]\n- None", cleaned)
+        self.assertNotIn("다른 repository를 근거로 쓰지", cleaned)
+        self.assertNotIn("등록된 channel만 사용", cleaned)
+        self.assertNotIn("연결된 page만 사용", cleaned)
 
     def test_handoff_sanitizer_drops_superseded_tentative_from_do_not_assume(self):
         raw = """[TASK]
