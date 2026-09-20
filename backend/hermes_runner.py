@@ -136,6 +136,7 @@ class CliHermesRunner:
                 recovered_tools = self._extract_mcp_tools(
                     recovered_trace,
                     handoff=recovered_handoff,
+                    retrieval_timing_ms=retrieval_timing_ms,
                 )
                 return HermesRunResult(
                     duration_sec=round(duration, 2),
@@ -202,7 +203,11 @@ class CliHermesRunner:
         )
 
         mcp_tool_calls = self._count_mcp_calls(trace_text)
-        mcp_tools = self._extract_mcp_tools(trace_text, handoff=handoff)
+        mcp_tools = self._extract_mcp_tools(
+            trace_text,
+            handoff=handoff,
+            retrieval_timing_ms=retrieval_timing_ms,
+        )
 
         if mcp_tool_calls == 0:
             raise HermesExecutionError(
@@ -294,13 +299,18 @@ class CliHermesRunner:
         )
 
     @staticmethod
-    def _extract_mcp_tools(text: str, handoff: str = "") -> list[str]:
+    def _extract_mcp_tools(
+        text: str,
+        handoff: str = "",
+        retrieval_timing_ms: dict[str, float] | None = None,
+    ) -> list[str]:
         """Return tools from actual Hermes trace events.
 
         Never infer tools from the entire stdout because the echoed runtime
         prompt may itself contain MCP examples. If Hermes truncates a trace
-        event to `mcp__mabc`, recover the leaf only from the already-extracted
-        final Handoff SOURCE MAP.
+        event to `mcp__mabc`, first use the retrieval timing side-channel when
+        it proves the aggregate workspace path was executed; otherwise recover
+        the leaf only from the already-extracted final Handoff SOURCE MAP.
         """
         trace = re.findall(
             r"(?mi)^.*⚡\s+(mcp[^\s(]+)",
@@ -314,6 +324,9 @@ class CliHermesRunner:
         ]
         if full_trace:
             return full_trace
+
+        if retrieval_timing_ms and "aggregate" in retrieval_timing_ms:
+            return ["mcp__mabc_sources__workspace_retrieve"]
 
         if handoff:
             full_handoff = re.findall(
