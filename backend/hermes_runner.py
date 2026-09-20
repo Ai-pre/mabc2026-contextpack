@@ -1,9 +1,11 @@
+import json
 import os
 import re
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from backend.handoff_policy import sanitize_handoff
@@ -29,6 +31,7 @@ class HermesRunResult:
     skill_used: bool
     mcp_tool_calls: int
     mcp_tools: list[str]
+    retrieval_timing_ms: dict[str, float] = field(default_factory=dict)
 
 
 class CliHermesRunner:
@@ -74,6 +77,8 @@ class CliHermesRunner:
         ]
 
         env = os.environ.copy()
+        run_id = uuid.uuid4().hex
+        env["CONTEXTPACK_RUN_ID"] = run_id
 
         if workspace_id:
             env["CONTEXTPACK_WORKSPACE_ID"] = workspace_id
@@ -100,6 +105,7 @@ class CliHermesRunner:
             ) from exc
 
         duration = time.perf_counter() - started
+        retrieval_timing_ms = self._read_retrieval_timing(run_id)
 
         # 실제 Handoff 후보는 stdout에서 추출. Hermes may return code 1
         # after reaching its iteration budget even though a complete final
@@ -137,6 +143,7 @@ class CliHermesRunner:
                     skill_used=True,
                     mcp_tool_calls=recovered_calls,
                     mcp_tools=recovered_tools,
+                    retrieval_timing_ms=retrieval_timing_ms,
                 )
 
             raise HermesExecutionError(
@@ -209,7 +216,30 @@ class CliHermesRunner:
             skill_used=skill_enabled,
             mcp_tool_calls=mcp_tool_calls,
             mcp_tools=mcp_tools,
+            retrieval_timing_ms=retrieval_timing_ms,
         )
+
+    @staticmethod
+    def _read_retrieval_timing(run_id: str) -> dict[str, float]:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", run_id):
+            return {}
+        path = Path("/tmp") / f"contextpack-retrieval-{run_id}.json"
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                return {}
+            return {
+                str(key): round(float(value), 2)
+                for key, value in raw.items()
+                if isinstance(value, (int, float)) and value >= 0
+            }
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return {}
+        finally:
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
     @staticmethod
     def _clean_output(text: str) -> str:
