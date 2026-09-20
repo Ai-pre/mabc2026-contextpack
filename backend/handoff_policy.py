@@ -154,6 +154,22 @@ def _is_superseded_history(text: str) -> bool:
     )
 
 
+def _extract_final_claim_from_superseded_conflict(item: str) -> str | None:
+    """Recover an explicit final claim from a misclassified tentative->final conflict."""
+    quoted = re.findall(r'["“]([^"”]+)["”]', item)
+    for span in reversed(quoted):
+        text = _normalized(span)
+        if (
+            any(marker in text for marker in FINAL_MARKERS)
+            and not any(marker in text for marker in TENTATIVE_MARKERS)
+        ):
+            claim = re.sub(r"^(?:아니다[.!?]?\s*|no[,.]?\s*)", "", span.strip(), flags=re.I)
+            source = re.search(r"\((?:source|출처):\s*([^)]+)\)", item, flags=re.I)
+            suffix = f" (source: {source.group(1).strip()})" if source else ""
+            return f"- {claim}{suffix}"
+    return None
+
+
 def _is_hypothetical_reopening_gap(text: str) -> bool:
     """Drop invented uncertainty about a final decision being reopened later.
 
@@ -209,6 +225,14 @@ def sanitize_handoff(handoff: str) -> str:
         end = matches[index + 1].start() if index + 1 < len(matches) else len(handoff)
         bodies[match.group(1)] = handoff[match.end():end].strip()
 
+    promoted_must_know: list[str] = []
+    for item in split_section_items(bodies.get("[UNRESOLVED CONFLICTS]", "")):
+        text = _normalized(item)
+        if _is_superseded_history(text):
+            promoted = _extract_final_claim_from_superseded_conflict(item)
+            if promoted:
+                promoted_must_know.append(promoted)
+
     def filtered(section: str) -> list[str]:
         kept: list[str] = []
         for item in split_section_items(bodies.get(section, "")):
@@ -236,8 +260,9 @@ def sanitize_handoff(handoff: str) -> str:
             if section in semantic_sections and _is_generic_retrieval_coverage(text):
                 continue
 
-            if section == "[UNRESOLVED CONFLICTS]" and _is_absence_only_conflict(text):
-                continue
+            if section == "[UNRESOLVED CONFLICTS]":
+                if _is_absence_only_conflict(text) or _is_superseded_history(text):
+                    continue
 
             if section == "[VERIFY BEFORE USE]" and _is_superseded_history(text):
                 continue
@@ -265,6 +290,12 @@ def sanitize_handoff(handoff: str) -> str:
             "[DO NOT ASSUME]",
         }:
             items = filtered(section)
+            if section == "[MUST KNOW]" and promoted_must_know:
+                normalized_existing = {_normalized(item) for item in items}
+                for promoted in promoted_must_know:
+                    if _normalized(promoted) not in normalized_existing:
+                        items.append(promoted)
+                        normalized_existing.add(_normalized(promoted))
             rendered.extend(items if items else ["- None"])
         else:
             body = bodies.get(section, "").strip()
