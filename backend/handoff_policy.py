@@ -118,6 +118,8 @@ def _looks_like_analysis_scope_metadata(text: str) -> bool:
         r"(?:source|connector).*(?:이|현재|해당)\s*workspace.*(?:없|연결되지|등록되지)",
         r"(?:live\s+)?(?:github\s+repository|slack\s+channel|notion\s+page).*(?:현재\s*)?(?:연결되어\s*있지|연결되지|미연결)",
         r"(?:현재\s*)?(?:연결|등록)되어\s*있지\s*않.*(?:retrieve|사용하지)",
+        r"^-\s*등록(?:된)?\s*workspace\s*source만\s*근거로\s*사용",
+        r"\(이\s*workspace:\s*(?:github|slack|notion|document)",
     )
     return any(re.search(pattern, text) for pattern in patterns)
 
@@ -145,12 +147,25 @@ def _is_generic_retrieval_coverage(text: str) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
 
 
+def _has_actual_reopening_signal(text: str) -> bool:
+    if not any(marker in text for marker in REOPENING_MARKERS):
+        return False
+
+    absence_patterns = (
+        r"(?:재논의|재검토|재조정|번복|reopen(?:ing|ed)?|reconsider).{0,50}(?:증거|근거).{0,20}(?:없|확인되지|not found|no evidence)",
+        r"(?:재논의|재검토|재조정|번복|reopen(?:ing|ed)?|reconsider).{0,40}(?:있었는지|여부|확인할 수 없|unknown|not confirmed|not verified)",
+        r"(?:증거|근거).{0,20}(?:없|확인되지|no evidence).{0,50}(?:재논의|재검토|재조정|번복|reopen(?:ing|ed)?|reconsider)",
+        r"(?:reopening|재논의|재검토|번복).{0,40}(?:없다|없음|없고|아니다)",
+    )
+    return not any(re.search(pattern, text) for pattern in absence_patterns)
+
+
 def _is_superseded_history(text: str) -> bool:
     return (
         any(marker in text for marker in TENTATIVE_MARKERS)
         and any(marker in text for marker in FINAL_MARKERS)
         and any(marker in text for marker in REPLACEMENT_MARKERS)
-        and not any(marker in text for marker in REOPENING_MARKERS)
+        and not _has_actual_reopening_signal(text)
     )
 
 
@@ -264,8 +279,9 @@ def sanitize_handoff(handoff: str) -> str:
                 if _is_absence_only_conflict(text) or _is_superseded_history(text):
                     continue
 
-            if section == "[VERIFY BEFORE USE]" and _is_superseded_history(text):
-                continue
+            if section == "[VERIFY BEFORE USE]":
+                if _is_superseded_history(text) or _is_hypothetical_reopening_gap(text):
+                    continue
 
             if section == "[DO NOT ASSUME]":
                 if (
@@ -297,6 +313,14 @@ def sanitize_handoff(handoff: str) -> str:
                         items.append(promoted)
                         normalized_existing.add(_normalized(promoted))
             rendered.extend(items if items else ["- None"])
+        elif section == "[SOURCE MAP]":
+            source_items = []
+            for item in split_section_items(bodies.get(section, "")):
+                text = _normalized(item)
+                if re.search(r"(?:증거 가치 낮음|결정 사항과 직접 관련 없어|참여자? 진입 메시지|join message)", text):
+                    continue
+                source_items.append(item)
+            rendered.extend(source_items if source_items else ["- None"])
         else:
             body = bodies.get(section, "").strip()
             rendered.append(body if body else "- None")
