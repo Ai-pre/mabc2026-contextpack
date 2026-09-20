@@ -199,11 +199,11 @@ class AnalysisTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         prompt = run.call_args.args[0]
-        self.assertIn("github_retrieve", prompt)
-        self.assertIn("slack_retrieve", prompt)
+        self.assertIn("workspace_retrieve", prompt)
+        self.assertIn("source_types", prompt)
         self.assertIn("Multi-source hard stop", prompt)
-        self.assertIn("선택한 각 aggregate retrieve tool을 Source당 정확히 1회만 호출", prompt)
-        self.assertIn("선택한 Source들의 첫 결과를 모두 받으면 추가 tool call 없이 즉시 최종 Handoff", prompt)
+        self.assertIn("workspace_retrieve를 정확히 1회 호출", prompt)
+        self.assertIn("개별 github_retrieve/slack_retrieve/notion_retrieve/document_retrieve를 추가 호출하지 않는다", prompt)
 
     def test_handoff_sanitizer_removes_retrieval_noise_and_superseded_verify(self):
         raw = """[TASK]
@@ -414,6 +414,14 @@ class AnalysisTests(unittest.TestCase):
         self.assertEqual(
             CliHermesRunner._extract_mcp_tools(stdout, handoff=handoff),
             ["mcp__mabc_sources__slack_retrieve"],
+        )
+
+    def test_mcp_trace_supports_workspace_retrieve(self):
+        trace = "⚡ mcp__mabc_sources__workspace_retrieve\n"
+        self.assertEqual(CliHermesRunner._count_mcp_calls(trace), 1)
+        self.assertEqual(
+            CliHermesRunner._extract_mcp_tools(trace),
+            ["mcp__mabc_sources__workspace_retrieve"],
         )
 
     def test_mcp_trace_ignores_prompt_examples_not_actually_called(self):
