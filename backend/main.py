@@ -407,6 +407,8 @@ def build_agent_prompt(req, workspace=None):
 2. **CONFLICT (서로 충돌하는 확정 정보)**
    - 서로 다른 source에 같은 사실에 대해 다른 내용이 **둘 다 확정 표현**으로 적혀 있을 때만
      하나를 임의로 선택하지 말고 UNRESOLVED CONFLICT로 남긴다.
+   - **Source silence is not conflict:** Source A가 X를 명시적으로 말하고 Source B가 그 topic을 언급하지 않는 것은 conflict가 아니다. "다른 Source에서 확인되지 않음", "교차 검증되지 않음"을 이유로 UNRESOLVED CONFLICTS를 만들지 않는다.
+   - 명시적 final claim이 한 Source에만 있고 다른 Source에 상충하는 claim이 없다면, 그 final claim은 provenance를 붙여 현재 상태로 사용할 수 있다. 별도 corroboration이 없다는 이유만으로 VERIFY/CONFLICT로 내리지 않는다.
    - "논의 중/검토 중/제안/초안/예정/후보"는 tentative이고,
      "최종 결정/확정/승인/적용 결정/취소"는 final/authoritative 표현이다.
    - 같은 decision topic에서 tentative claim과 final claim이 함께 있고 final이 이전 안을 확정·대체·취소하는 관계라면
@@ -426,6 +428,7 @@ def build_agent_prompt(req, workspace=None):
    - superseded tentative는 Task 이해에 꼭 필요할 때만 USEFUL IF SPACE ALLOWS에 과거 논의로 짧게 남기고, 필요 없으면 완전히 제외한다.
    - DO NOT ASSUME에는 현재 Task 수행에 실제로 필요한데 근거가 없는 세부사항만 넣는다.
    - "다른 채널/문서에 추가 논의가 있을 수 있다", "현재 retrieve 밖에 더 많은 정보가 있을 수 있다", "추가 확인이 안전하다" 같은 보편적인 불확실성/면책 문구는 MISSING이 아니므로 DO NOT ASSUME에 넣지 않는다.
+   - "한 개 메시지에서만 확인됨", "다른 채널은 조회하지 않음", "별도 충돌 근거를 찾지 못함" 같은 retrieval coverage 상태도 Project Context가 아니므로 어떤 semantic section에도 넣지 않는다.
    - Task-critical missing fact가 하나도 없으면 억지로 coverage gap을 만들지 말고 DO NOT ASSUME을 반드시 `- None`으로 둔다.
 
 4. **Irrelevant (현재 Task와 무관한 정보)**
