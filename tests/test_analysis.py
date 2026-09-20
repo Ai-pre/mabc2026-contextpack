@@ -148,6 +148,9 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("final 결정에 의해 명시적으로 대체된 tentative/candidate 안은 MISSING이 아니다", prompt)
         self.assertIn("가상의 가능성을 새 MISSING으로 만들지 않는다", prompt)
         self.assertIn("Retrieval mechanics ≠ Handoff context", prompt)
+        self.assertIn("공통 Evidence Contract", prompt)
+        self.assertIn("evidence_schema_version", prompt)
+        self.assertIn("source_type마다 별도의 Handoff 품질 규칙을 만들지 않는다", prompt)
         self.assertIn("ContextPack 내부 retrieval 제약은 넣지 않는다", prompt)
         self.assertIn("보편적인 불확실성/면책 문구는 MISSING이 아니므로", prompt)
         self.assertIn("정확한 MCP callable identifier", prompt)
@@ -182,9 +185,9 @@ class AnalysisTests(unittest.TestCase):
 
     def test_handoff_sanitizer_drops_superseded_tentative_from_do_not_assume(self):
         raw = """[TASK]
-- Slack 논의 정리
+- 프로젝트 결정 정리
 [MUST KNOW]
-- 다음 배포는 토요일로 최종 결정됐다.
+- 릴리스 일정은 토요일로 최종 결정됐다.
 [CONSTRAINTS]
 - None
 [USEFUL IF SPACE ALLOWS]
@@ -194,15 +197,15 @@ class AnalysisTests(unittest.TestCase):
 [VERIFY BEFORE USE]
 - None
 [DO NOT ASSUME]
-- 다음 배포 토요일의 정확한 시각, 담당자, 대상 환경은 현재 근거에서 확인되지 않았다.
-- "다음 배포는 금요일로 논의 중"이라는 문구는 토요일 최종 결정 전에 있었던 논의 내용으로 보이며, 현재 상태는 토요일이다.
+- 토요일 릴리스의 정확한 시각, 담당자, 대상 환경은 현재 근거에서 확인되지 않았다.
+- "금요일로 논의 중"이라는 후보안은 토요일 최종 결정 전에 있었던 내용이며, 현재 상태는 토요일이다.
 [SOURCE MAP]
 - mcp__mabc_sources__slack_retrieve(workspace_id=ws_x, channel=C012ABCDEF)
 """
         cleaned = CliHermesRunner._sanitize_handoff(raw)
         self.assertIn("정확한 시각, 담당자, 대상 환경", cleaned)
         self.assertNotIn("금요일로 논의 중", cleaned)
-        self.assertIn("[DO NOT ASSUME]\n- 다음 배포 토요일의 정확한 시각", cleaned)
+        self.assertIn("[DO NOT ASSUME]\n- 토요일 릴리스의 정확한 시각", cleaned)
 
     def test_mcp_tool_trace_prefers_full_identifier_from_source_map(self):
         stdout = """⚡ mcp__mabc
