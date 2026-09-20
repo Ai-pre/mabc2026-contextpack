@@ -1373,6 +1373,159 @@ def document_retrieve(
 
 
 @server.tool()
+def workspace_retrieve(
+    workspace_id: str,
+    query: str,
+    source_types: str = "",
+) -> str:
+    """Retrieve task evidence from multiple registered source kinds in one MCP call.
+
+    source_types is an optional comma-separated allowlist using:
+    github, slack, notion, document. If omitted, all registered source kinds in
+    the current workspace are retrieved. Each registered source is queried at
+    most once and independent sources are fetched in parallel.
+    """
+    _require_workspace(workspace_id)
+    if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
+        raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
+    if not isinstance(source_types, str) or "\x00" in source_types:
+        raise WorkspaceValidationError("source_types must be comma-separated text.")
+
+    workspace = _STORE.get_workspace(workspace_id)
+    available: dict[str, list[str]] = {
+        "github": [
+            source["repository"]
+            for source in workspace["sources"]
+            if source.get("source_type") == "connector"
+            and source.get("connector") == "github"
+            and source.get("repository")
+        ],
+        "slack": [
+            source["channel"]
+            for source in workspace["sources"]
+            if source.get("source_type") == "connector"
+            and source.get("connector") == "slack"
+            and source.get("channel")
+        ],
+        "notion": [
+            source["page_id"]
+            for source in workspace["sources"]
+            if source.get("source_type") == "connector"
+            and source.get("connector") == "notion"
+            and source.get("page_id")
+        ],
+        "document": [
+            source["id"]
+            for source in workspace["sources"]
+            if source.get("source_type") == "upload"
+        ],
+    }
+
+    supported = {"github", "slack", "notion", "document"}
+    if source_types.strip():
+        requested = [
+            item.strip().casefold()
+            for item in source_types.split(",")
+            if item.strip()
+        ]
+        if not requested:
+            raise WorkspaceValidationError("source_types must contain at least one source kind.")
+        if any(item not in supported for item in requested):
+            raise WorkspaceValidationError(
+                "source_types may only contain github, slack, notion, document."
+            )
+        requested = list(dict.fromkeys(requested))
+    else:
+        requested = [kind for kind in ("github", "slack", "notion", "document") if available[kind]]
+
+    if not requested:
+        raise WorkspaceValidationError("No retrievable Source is registered in this workspace.")
+    unavailable = [kind for kind in requested if not available[kind]]
+    if unavailable:
+        raise WorkspaceValidationError(
+            "Requested source type is not registered in this workspace: " + ", ".join(unavailable)
+        )
+
+    jobs: list[tuple[str, str, Any]] = []
+    for kind in requested:
+        if kind == "github":
+            for repository in available[kind]:
+                jobs.append((
+                    kind,
+                    repository,
+                    lambda repository=repository: github_retrieve(
+                        workspace_id, query, repository=repository
+                    ),
+                ))
+        elif kind == "slack":
+            for channel in available[kind]:
+                jobs.append((
+                    kind,
+                    channel,
+                    lambda channel=channel: slack_retrieve(
+                        workspace_id, query, channel=channel
+                    ),
+                ))
+        elif kind == "notion":
+            for page_id in available[kind]:
+                jobs.append((
+                    kind,
+                    page_id,
+                    lambda page_id=page_id: notion_retrieve(
+                        workspace_id, query, page_id=page_id
+                    ),
+                ))
+        elif kind == "document":
+            # document_retrieve already searches across all uploaded documents.
+            jobs.append((
+                kind,
+                "uploaded-documents",
+                lambda: document_retrieve(workspace_id, query),
+            ))
+
+    evidence: list[dict[str, Any]] = []
+    retrievals: list[dict[str, Any]] = []
+
+    def run_job(job: tuple[str, str, Any]) -> tuple[str, str, dict[str, Any] | None, str | None]:
+        kind, source_ref, fn = job
+        try:
+            payload = json.loads(fn())
+            return kind, source_ref, payload if isinstance(payload, dict) else {}, None
+        except (WorkspaceValidationError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            return kind, source_ref, None, str(exc)
+
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(jobs)))) as pool:
+        for kind, source_ref, payload, error in pool.map(run_job, jobs):
+            if error is not None:
+                retrievals.append({
+                    "source_type": kind,
+                    "source_ref": source_ref,
+                    "status": "error",
+                    "evidence_count": 0,
+                    "error": error,
+                })
+                continue
+            items = payload.get("evidence", []) if isinstance(payload, dict) else []
+            items = [item for item in items if isinstance(item, dict)]
+            evidence.extend(items)
+            retrievals.append({
+                "source_type": kind,
+                "source_ref": source_ref,
+                "status": "ok",
+                "evidence_count": len(items),
+            })
+
+    return json.dumps({
+        "workspace_id": workspace_id,
+        "query": query,
+        "requested_source_types": requested,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
+        "evidence": evidence,
+        "retrievals": retrievals,
+    }, ensure_ascii=False, separators=(",", ":"))
+
+
+@server.tool()
 def document_get(workspace_id: str, document_id: str, offset: int = 0, max_chars: int = 12000) -> str:
     """Read one registered uploaded document in the current analysis workspace.
 
