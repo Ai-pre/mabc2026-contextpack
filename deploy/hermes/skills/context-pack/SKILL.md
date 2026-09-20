@@ -158,6 +158,8 @@ Handoff Context에서는 다음처럼 분리해 전달한다:
 - 둘을 `UNRESOLVED CONFLICTS`로 올리지 않는다.
 - **Finality 보존 규칙:** final/authoritative claim 이후에 명시적인 reopening, 상충하는 확정 근거, 또는 stale 근거가 없다면 해당 결정을 `VERIFY BEFORE USE`에 중복시키지 않는다. "실제 상황은 바뀔 수 있음", "추가 확인이 안전함" 같은 일반적 가능성은 VERIFY 근거가 아니다.
 - final claim에 딸린 세부사항(정확한 시각, 담당자, 대상 환경 등)이 source에 없다면 final claim 자체를 약화시키지 않는다. 확인되지 않은 세부사항만 `DO NOT ASSUME`으로 분리한다.
+- final에 의해 명시적으로 대체된 tentative/candidate claim은 MISSING이 아니다. "이전 안이 별도 확정으로 남아 있을 수도 있음" 같은 가상의 가능성을 `DO NOT ASSUME`에 만들지 않는다.
+- superseded tentative는 현재 Task의 배경으로 꼭 필요할 때만 `USEFUL`에 한 줄로 남기고, 아니면 제외한다.
 - 단, final 이후 다시 "재논의/재검토/결정 보류/결정 번복" 같은 명시적 reopening signal이 있으면 현재 상태가 다시 불확실할 수 있으므로 VERIFY 또는 CONFLICT 여부를 재평가한다.
 
 - 한쪽 claim을 `[MUST KNOW]`, `[CONSTRAINTS]`, `[USEFUL IF SPACE ALLOWS]`에서 확정 사실처럼 다시 쓰지 않는다.
@@ -238,6 +240,10 @@ Step 1의 Context Requirement Map 각각에 대해 `FOUND / PARTIAL / MISSING` �
 
 ## 10. Source Map
 Context Item → 원본 출처 위치.
+
+각 항목에는 실제 근거 조회에 사용한 **정확한 MCP callable identifier**를 남긴다.
+예: `mcp__mabc_sources__slack_retrieve(workspace_id=..., channel=...)`.
+Hermes trace가 `mcp__mabc`처럼 축약되어 보여도 SOURCE MAP에는 축약형을 쓰지 않는다.
 
 ## 11. Handoff Context (핵심 최종 산출물)
 위 **최종 Handoff Context 형식**에 따라 복사 가능한 Context Bundle을 작성한다.
