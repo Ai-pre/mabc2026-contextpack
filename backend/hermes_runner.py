@@ -6,6 +6,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from backend.handoff_policy import sanitize_handoff
+
 
 ANSI_RE = re.compile(
     r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])"
@@ -276,152 +278,9 @@ class CliHermesRunner:
         )
 
     @staticmethod
-    def _split_section_items(body: str) -> list[str]:
-        """Split a section body into bullet items while preserving continuations."""
-        items: list[list[str]] = []
-        current: list[str] = []
-
-        for line in body.splitlines():
-            if re.match(r"^\s*-\s+", line):
-                if current:
-                    items.append(current)
-                current = [line]
-            elif current:
-                current.append(line)
-            elif line.strip():
-                current = [line]
-
-        if current:
-            items.append(current)
-
-        return ["\n".join(item).strip() for item in items if any(part.strip() for part in item)]
-
-    @staticmethod
     def _sanitize_handoff(handoff: str) -> str:
-        """Remove retrieval-process leakage and finality contradictions.
-
-        This is intentionally conservative: it only deletes known execution
-        metadata / generic coverage disclaimers, or VERIFY items where an
-        explicitly tentative option is superseded by an explicit final decision
-        with no reopening signal. It never invents replacement facts.
-        """
-        section_names = [
-            "[TASK]",
-            "[MUST KNOW]",
-            "[CONSTRAINTS]",
-            "[USEFUL IF SPACE ALLOWS]",
-            "[UNRESOLVED CONFLICTS]",
-            "[VERIFY BEFORE USE]",
-            "[DO NOT ASSUME]",
-            "[SOURCE MAP]",
-        ]
-        header_re = re.compile(
-            r"(?m)^(" + "|".join(re.escape(name) for name in section_names) + r")\s*$"
-        )
-        matches = list(header_re.finditer(handoff))
-        if [match.group(1) for match in matches] != section_names:
-            return handoff
-
-        bodies: dict[str, str] = {}
-        for index, match in enumerate(matches):
-            end = matches[index + 1].start() if index + 1 < len(matches) else len(handoff)
-            bodies[match.group(1)] = handoff[match.end():end].strip()
-
-        def kept_items(section: str) -> list[str]:
-            items = CliHermesRunner._split_section_items(bodies.get(section, ""))
-            kept: list[str] = []
-
-            for item in items:
-                normalized = re.sub(r"\s+", " ", item).casefold()
-
-                if section == "[CONSTRAINTS]":
-                    retrieval_markers = (
-                        "workspace_id",
-                        "mcp__",
-                        "github_retrieve",
-                        "slack_retrieve",
-                        "notion_retrieve",
-                        "document_retrieve",
-                        "등록된 source",
-                        "등록 source",
-                        "다른 채널이나 workspace",
-                        "다른 workspace",
-                        "근거로만 제한",
-                        "탐색하지 않는다",
-                        "연결된 live github repository가 없",
-                        "연결된 live notion page가 없",
-                    )
-                    if any(marker in normalized for marker in retrieval_markers):
-                        continue
-
-                if section == "[VERIFY BEFORE USE]":
-                    tentative_markers = (
-                        "논의 중", "검토 중", "제안", "초안", "예정", "후보", "고려 중"
-                    )
-                    final_markers = (
-                        "최종 결정", "최종 확정", "확정했", "확정됨", "승인", "적용 결정", "취소"
-                    )
-                    reopening_markers = (
-                        "재논의", "재검토", "결정 보류", "번복", "reopen", "reopening"
-                    )
-                    if (
-                        any(marker in normalized for marker in tentative_markers)
-                        and any(marker in normalized for marker in final_markers)
-                        and not any(marker in normalized for marker in reopening_markers)
-                    ):
-                        continue
-
-                if section == "[DO NOT ASSUME]":
-                    generic_patterns = (
-                        r"위 메시지 외.*추가 논의",
-                        r"retrieve 결과.*추가 논의",
-                        r"retrieve 결과.*더 많은",
-                        r"다른 채널.*논의",
-                        r"현재 (?:조회|retrieve) 범위 밖",
-                        r"접근하지 않은 source.*가능",
-                        r"추가 확인이 안전",
-                    )
-                    if any(re.search(pattern, normalized) for pattern in generic_patterns):
-                        continue
-
-                    # A superseded tentative option is not missing context.
-                    # If the item itself explains an earlier tentative/candidate
-                    # value and the later final decision that replaced it, drop
-                    # the whole item instead of re-stating resolved history.
-                    tentative_markers = (
-                        "논의 중", "검토 중", "제안", "초안", "예정", "후보", "고려 중"
-                    )
-                    final_markers = (
-                        "최종 결정", "최종 확정", "확정했", "확정됨", "확정 표현", "현재 상태"
-                    )
-                    replacement_markers = (
-                        "전에 있었", "이전", "대체", "더 이상", "현재", "최종"
-                    )
-                    if (
-                        any(marker in normalized for marker in tentative_markers)
-                        and any(marker in normalized for marker in final_markers)
-                        and any(marker in normalized for marker in replacement_markers)
-                    ):
-                        continue
-
-                if normalized not in {"- none", "none"}:
-                    kept.append(item)
-
-            return kept
-
-        rendered: list[str] = []
-        for section in section_names:
-            rendered.append(section)
-            if section in {"[CONSTRAINTS]", "[VERIFY BEFORE USE]", "[DO NOT ASSUME]"}:
-                items = kept_items(section)
-                rendered.extend(items if items else ["- None"])
-            else:
-                body = bodies.get(section, "").strip()
-                rendered.append(body if body else "- None")
-            if section != section_names[-1]:
-                rendered.append("")
-
-        return "\n".join(rendered).strip()
+        """Apply the shared connector-neutral Handoff policy."""
+        return sanitize_handoff(handoff)
 
     @staticmethod
     def _extract_handoff(text: str) -> str:
