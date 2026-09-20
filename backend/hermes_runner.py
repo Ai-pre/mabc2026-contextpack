@@ -100,9 +100,37 @@ class CliHermesRunner:
 
         duration = time.perf_counter() - started
 
+        # 실제 Handoff 후보는 stdout에서 추출. Hermes may return code 1
+        # after reaching its iteration budget even though a complete final
+        # Handoff was already emitted.
+        clean_stdout = self._clean_output(
+            proc.stdout or ""
+        )
+
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()
             stdout = (proc.stdout or "").strip()
+            budget_reached = bool(re.search(
+                r"(?i)iteration budget reached|response may be incomplete",
+                stdout + "\n" + stderr,
+            ))
+            recovered_handoff = self._extract_handoff(clean_stdout) if budget_reached else ""
+            recovered_trace = self._clean_output(
+                (proc.stdout or "") + "\n" + (proc.stderr or "")
+            )
+            recovered_calls = self._count_mcp_calls(recovered_trace)
+            if recovered_handoff and recovered_calls > 0:
+                recovered_tools = self._extract_mcp_tools(
+                    recovered_trace,
+                    handoff=recovered_handoff,
+                )
+                return HermesRunResult(
+                    duration_sec=round(duration, 2),
+                    handoff=recovered_handoff,
+                    skill_used=True,
+                    mcp_tool_calls=recovered_calls,
+                    mcp_tools=recovered_tools,
+                )
 
             raise HermesExecutionError(
                 f"Hermes exited with code "
@@ -110,11 +138,6 @@ class CliHermesRunner:
                 f"stderr:\n{stderr[-3000:]}\n"
                 f"stdout tail:\n{stdout[-1500:]}"
             )
-
-        # 실제 Handoff 후보는 stdout에서 추출
-        clean_stdout = self._clean_output(
-            proc.stdout or ""
-        )
 
         # MCP trace는 stdout / stderr 양쪽에서 나올 수 있음
         trace_text = self._clean_output(
