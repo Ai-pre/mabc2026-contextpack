@@ -87,6 +87,29 @@ classification은 다음을 사용한다:
 이때 핵심 숫자·조건·부정 표현·예외사항·날짜/버전·원문의 확실성 수준은 반드시 유지한다.
 "가능성이 있다/검토 중이다/예정이다"를 "결정됐다"로 바꾸지 않는다(No information laundering).
 
+### Common Evidence Contract
+
+ContextPack의 Handoff 품질 규칙은 connector별로 정의하지 않는다.
+
+GitHub / Slack / Notion / uploaded document / Jira 등 retriever는 가능한 경우 다음 공통 evidence shape으로 결과를 제공한다.
+
+```text
+evidence_id
+source_type
+kind
+source_ref
+content
+timestamp
+author
+metadata
+```
+
+- `source_type`은 provenance 구분용이다.
+- semantic classification(MUST_INCLUDE / USEFUL / CONFLICT / STALE / MISSING)은 provider 이름이 아니라 evidence의 content, timestamp, certainty signal, provenance 관계를 기준으로 한다.
+- connector마다 별도의 "Slack용 conflict 규칙", "GitHub용 stale 규칙"을 만들지 않는다.
+- provider-specific 필드는 retrieval/debugging에는 사용할 수 있지만, 공통 evidence가 있으면 Context Item 생성의 기준 입력은 evidence다.
+- 새로운 connector를 추가해도 Handoff Policy는 그대로 재사용한다.
+
 ### Step 6. Least Context Principle
 ContextPack은 **최소 권한 원칙의 context 버전**처럼 동작한다.
 
