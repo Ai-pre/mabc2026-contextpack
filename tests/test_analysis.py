@@ -178,6 +178,8 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("source_type마다 별도의 Handoff 품질 규칙을 만들지 않는다", prompt)
         self.assertIn("다음 작업의 판단/구현을 바꾸는 현재 사실·최근 결정·필수 제약", prompt)
         self.assertIn("최근 변경사항을 MUST KNOW에 우선 배치", prompt)
+        self.assertIn("Multi-source hard stop", prompt)
+        self.assertIn("선택한 각 aggregate retrieve tool을 Source당 정확히 1회만 호출", prompt)
         self.assertIn("ContextPack 내부 retrieval 제약은 넣지 않는다", prompt)
         self.assertIn("보편적인 불확실성/면책 문구는 MISSING이 아니므로", prompt)
         self.assertIn("정확한 MCP callable identifier", prompt)
@@ -462,6 +464,44 @@ class AnalysisTests(unittest.TestCase):
             response = self.client.post("/analyze", content="{", headers={"Content-Type": "application/json"})
             self.assertEqual(response.status_code, 400)
             run.assert_not_called()
+
+    def test_runner_recovers_complete_handoff_after_iteration_budget(self):
+        stdout = """⚡ mcp__mabc_sources__github_retrieve
+⚡ mcp__mabc_sources__slack_retrieve
+[TASK]
+- Cross-source 정리
+[MUST KNOW]
+- 토요일 배포가 최종 결정됐다.
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__github_retrieve(workspace_id=ws_x, repository=owner/repo)
+- mcp__mabc_sources__slack_retrieve(workspace_id=ws_x, channel=C1)
+
+⚠ Iteration budget reached (8/8) — response may be incomplete
+"""
+        with patch(
+            "backend.hermes_runner.subprocess.run",
+            return_value=SimpleNamespace(returncode=1, stdout=stdout, stderr=""),
+        ):
+            result = api.runner.run("Test prompt", workspace_id="demo")
+        self.assertIn("토요일 배포가 최종 결정", result.handoff)
+        self.assertEqual(result.mcp_tool_calls, 2)
+        self.assertEqual(
+            result.mcp_tools,
+            [
+                "mcp__mabc_sources__github_retrieve",
+                "mcp__mabc_sources__slack_retrieve",
+            ],
+        )
 
     def test_runtime_failures_keep_useful_status_and_detail(self):
         for error, status in ((HermesTimeoutError("Run timed out"), 504), (HermesExecutionError("CLI failed"), 502)):
