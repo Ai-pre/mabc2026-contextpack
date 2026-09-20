@@ -261,6 +261,10 @@ class DocumentMcpTests(unittest.TestCase):
             {"github", "slack"},
         )
         self.assertEqual(len(response["retrievals"]), 2)
+        self.assertGreaterEqual(response["timing_ms"]["aggregate"], 0)
+        self.assertGreaterEqual(response["timing_ms"]["github"], 0)
+        self.assertGreaterEqual(response["timing_ms"]["slack"], 0)
+        self.assertTrue(all("duration_ms" in item for item in response["retrievals"]))
         github.assert_called_once_with(
             workspace_id,
             "MCP 배포 결정사항",
