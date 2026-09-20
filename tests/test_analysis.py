@@ -318,6 +318,30 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn("등록된 channel만 사용", cleaned)
         self.assertNotIn("연결된 page만 사용", cleaned)
 
+    def test_handoff_sanitizer_drops_explicitly_irrelevant_retrieved_items_everywhere(self):
+        raw = """[TASK]
+- 배포 결정 정리
+[MUST KNOW]
+- 다음 배포는 토요일로 최종 결정됐다.
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- Slack 참여자 진입 메시지는 결정 사항과 직접 관련 없어 참고 정보다.
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- slack:C1/123 — 결정 메시지
+- slack:C1/999 — 참여자 진입 메시지, 결정 사항과 직접 관련 없어 참고
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("slack:C1/123", cleaned)
+        self.assertNotIn("참여자 진입 메시지", cleaned)
+        self.assertIn("[USEFUL IF SPACE ALLOWS]\n- None", cleaned)
+
     def test_handoff_sanitizer_resolves_self_correction_even_when_conflict_text_says_no_reopening_evidence(self):
         raw = """[TASK]
 - 배포 결정 정리
