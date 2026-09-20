@@ -333,6 +333,7 @@ def build_agent_prompt(req, workspace=None):
         + (1 if notion_pages else 0)
     )
     single_source_rule = ""
+    multi_source_rule = ""
     if not workspace["is_demo"] and active_source_kinds == 1:
         if slack_channels:
             single_source_rule = (
@@ -354,6 +355,14 @@ def build_agent_prompt(req, workspace=None):
                 "\n- 이 Workspace는 uploaded-document-only다. document_retrieve를 우선 1회 호출하고, "
                 "결과가 비어 있지 않으면 즉시 최종 Handoff를 작성한다."
             )
+    elif not workspace["is_demo"] and active_source_kinds > 1:
+        multi_source_rule = (
+            "\n- **Multi-source hard stop:** 현재 Task에 필요한 Source 종류를 먼저 고른다. "
+            "선택한 각 aggregate retrieve tool을 Source당 정확히 1회만 호출하고, 가능하면 같은 turn에서 병렬 호출한다. "
+            "선택한 Source들의 첫 결과를 모두 받으면 추가 tool call 없이 즉시 최종 Handoff를 작성한다. "
+            "같은 retrieve tool 재호출, granular search/get fallback, terminal/read_file/search_files/web_search 호출은 금지한다. "
+            "한 Source가 비어 있거나 다른 Source가 그 topic을 언급하지 않아도 재검색하지 않는다."
+        )
 
     return f"""나는 {req.role}다.
 
@@ -372,6 +381,7 @@ def build_agent_prompt(req, workspace=None):
 {source_rules_text}
 {source_instructions}
 {single_source_rule}
+{multi_source_rule}
 
 ## 탐색 규칙
 
