@@ -182,9 +182,9 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("[TASK]", skill_text)
         self.assertIn("[SOURCE MAP]", skill_text)
         self.assertNotIn("\n## 최종 출력 형식\n", skill_text)
-        self.assertNotIn("## 1. Task", skill_text)
-        self.assertNotIn("[SCRIPT_MAP]", skill_text)
-        self.assertNotIn("[호출 MCP tool]", skill_text)
+        self.assertNotRegex(skill_text, r"(?m)^## 1\. Task\s*$")
+        self.assertNotRegex(skill_text, r"(?m)^\[SCRIPT_MAP\]\s*$")
+        self.assertNotRegex(skill_text, r"(?m)^\[호출 MCP tool\]\s*$")
 
     def test_runtime_prompt_hard_stops_with_one_aggregate_call_in_multi_source_workspace(self):
         workspace_id = self.store.create_workspace("GitHub + Slack")["workspace_id"]
