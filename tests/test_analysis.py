@@ -145,6 +145,9 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("확인되지 않은 세부사항만 DO NOT ASSUME", prompt)
         self.assertIn("final 결정에 의해 명시적으로 대체된 tentative/candidate 안은 MISSING이 아니다", prompt)
         self.assertIn("가상의 가능성을 새 MISSING으로 만들지 않는다", prompt)
+        self.assertIn("Retrieval mechanics ≠ Handoff context", prompt)
+        self.assertIn("ContextPack 내부 retrieval 제약은 넣지 않는다", prompt)
+        self.assertIn("보편적인 불확실성/면책 문구는 MISSING이 아니므로", prompt)
         self.assertIn("정확한 MCP callable identifier", prompt)
         self.assertIn("reopening signal", prompt)
 
