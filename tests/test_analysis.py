@@ -180,6 +180,30 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("mcp__mabc_sources__slack_retrieve", cleaned)
         self.assertNotIn("위 메시지 외에 채널 내 추가 논의", cleaned)
 
+    def test_handoff_sanitizer_drops_superseded_tentative_from_do_not_assume(self):
+        raw = """[TASK]
+- Slack 논의 정리
+[MUST KNOW]
+- 다음 배포는 토요일로 최종 결정됐다.
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- 다음 배포 토요일의 정확한 시각, 담당자, 대상 환경은 현재 근거에서 확인되지 않았다.
+- "다음 배포는 금요일로 논의 중"이라는 문구는 토요일 최종 결정 전에 있었던 논의 내용으로 보이며, 현재 상태는 토요일이다.
+[SOURCE MAP]
+- mcp__mabc_sources__slack_retrieve(workspace_id=ws_x, channel=C012ABCDEF)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("정확한 시각, 담당자, 대상 환경", cleaned)
+        self.assertNotIn("금요일로 논의 중", cleaned)
+        self.assertIn("[DO NOT ASSUME]\n- 다음 배포 토요일의 정확한 시각", cleaned)
+
     def test_mcp_tool_trace_prefers_full_identifier_from_source_map(self):
         stdout = """⚡ mcp__mabc
 [TASK]
