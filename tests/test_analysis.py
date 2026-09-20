@@ -178,12 +178,32 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("source_type마다 별도의 Handoff 품질 규칙을 만들지 않는다", prompt)
         self.assertIn("다음 작업의 판단/구현을 바꾸는 현재 사실·최근 결정·필수 제약", prompt)
         self.assertIn("최근 변경사항을 MUST KNOW에 우선 배치", prompt)
-        self.assertIn("Multi-source hard stop", prompt)
-        self.assertIn("선택한 각 aggregate retrieve tool을 Source당 정확히 1회만 호출", prompt)
+        self.assertNotIn("Multi-source hard stop", prompt)
+        self.assertIn("Slack-only다", prompt)
         self.assertIn("ContextPack 내부 retrieval 제약은 넣지 않는다", prompt)
         self.assertIn("보편적인 불확실성/면책 문구는 MISSING이 아니므로", prompt)
         self.assertIn("정확한 MCP callable identifier", prompt)
         self.assertIn("reopening signal", prompt)
+
+    def test_runtime_prompt_hard_stops_after_one_call_per_source_in_multi_source_workspace(self):
+        workspace_id = self.store.create_workspace("GitHub + Slack")["workspace_id"]
+        self.store.add_github_source(workspace_id, "Ai-pre/mabc2026-contextpack")
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+
+        with patch.object(api.runner, "run", return_value=self.result) as run:
+            response = self.client.post("/analyze", json={
+                "workspace_id": workspace_id,
+                "role": "Backend Developer",
+                "task": "Summarize recent MCP and deployment decisions from GitHub and Slack",
+            })
+
+        self.assertEqual(response.status_code, 200, response.text)
+        prompt = run.call_args.args[0]
+        self.assertIn("github_retrieve", prompt)
+        self.assertIn("slack_retrieve", prompt)
+        self.assertIn("Multi-source hard stop", prompt)
+        self.assertIn("선택한 각 aggregate retrieve tool을 Source당 정확히 1회만 호출", prompt)
+        self.assertIn("선택한 Source들의 첫 결과를 모두 받으면 추가 tool call 없이 즉시 최종 Handoff", prompt)
 
     def test_handoff_sanitizer_removes_retrieval_noise_and_superseded_verify(self):
         raw = """[TASK]
