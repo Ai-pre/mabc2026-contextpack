@@ -68,6 +68,10 @@ def _looks_like_retrieval_mechanics(text: str) -> bool:
         r"(?:mcp|tool).*(?:호출|재호출|탐색하지|사용하지)",
         r"(?:연결된|등록된).*(?:없으므로|없어서).*(?:retrieve|mcp|tool)",
         r"(?:registered|connected).*(?:source|connector).*(?:only|scope|not available)",
+        r"(?:github|slack|notion|document)\s*근거는\s*(?:연결된|등록된).*(?:만\s*사용|제한)",
+        r"(?:연결된|등록된)\s*(?:repository|repo|channel|page).*(?:만\s*사용|다른 .*근거로 쓰지|범위로 제한)",
+        r"다른\s*(?:repository|repo|channel|page).*(?:근거로 쓰지|사용하지|탐색하지)",
+        r"(?:repository|repo|channel|page)\s*allowlist",
     )
     return any(re.search(pattern, text) for pattern in patterns)
 
@@ -154,7 +158,7 @@ def sanitize_handoff(handoff: str) -> str:
             if section in semantic_sections and _looks_like_analysis_scope_metadata(text):
                 continue
 
-            if section == "[CONSTRAINTS]" and _looks_like_retrieval_mechanics(text):
+            if section in semantic_sections and _looks_like_retrieval_mechanics(text):
                 continue
 
             if section == "[VERIFY BEFORE USE]" and _is_superseded_history(text):
