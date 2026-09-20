@@ -18,6 +18,7 @@ from typing import Any
 
 from mcp.server import MCPServer
 from backend.workspace_store import WorkspaceStore, WorkspaceValidationError
+from backend.evidence_schema import EVIDENCE_SCHEMA_VERSION, make_evidence
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +356,76 @@ def github_retrieve(
         "query_paths": [path for _, path in scored_paths[:15]],
     }
 
+    normalized_evidence = [
+        make_evidence(
+            evidence_id=f"github:{repository}:repo",
+            source_type="github",
+            source_ref=repository,
+            kind="repository",
+            content="\n".join(filter(None, [
+                metadata.get("description") or "",
+                f"default branch: {default_branch}",
+            ])),
+            timestamp=metadata.get("pushed_at") or metadata.get("updated_at"),
+            metadata={"repository": repository, "default_branch": default_branch},
+        )
+    ]
+    for commit in compact_commits:
+        normalized_evidence.append(make_evidence(
+            evidence_id=f"github:{repository}:commit:{commit.get('sha')}",
+            source_type="github",
+            source_ref=f"{repository}@{commit.get('sha')}",
+            kind="commit",
+            content=commit.get("message") or "(commit message unavailable)",
+            timestamp=commit.get("date"),
+            metadata={"repository": repository, "sha": commit.get("sha")},
+        ))
+    for pull in compact_pulls:
+        files_text = ", ".join(
+            file.get("filename") or "" for file in pull.get("files", []) if file.get("filename")
+        )
+        content = "\n".join(filter(None, [
+            pull.get("title") or "",
+            pull.get("body_preview") or "",
+            f"changed files: {files_text}" if files_text else "",
+        ]))
+        normalized_evidence.append(make_evidence(
+            evidence_id=f"github:{repository}:pr:{pull.get('number')}",
+            source_type="github",
+            source_ref=f"{repository}#PR{pull.get('number')}",
+            kind="pull_request",
+            content=content or "(pull request content unavailable)",
+            timestamp=pull.get("merged_at") or pull.get("updated_at"),
+            metadata={
+                "repository": repository,
+                "number": pull.get("number"),
+                "state": pull.get("state"),
+                "draft": pull.get("draft"),
+                "merged_at": pull.get("merged_at"),
+                "files": pull.get("files", []),
+            },
+        ))
+    if readme:
+        normalized_evidence.append(make_evidence(
+            evidence_id=f"github:{repository}:readme",
+            source_type="github",
+            source_ref=f"{repository}:README",
+            kind="document",
+            content=readme,
+            timestamp=metadata.get("pushed_at") or metadata.get("updated_at"),
+            metadata={"repository": repository},
+        ))
+    if tree_summary["query_paths"]:
+        normalized_evidence.append(make_evidence(
+            evidence_id=f"github:{repository}:paths",
+            source_type="github",
+            source_ref=f"{repository}:tree",
+            kind="repository_paths",
+            content="query-relevant paths: " + ", ".join(tree_summary["query_paths"]),
+            timestamp=metadata.get("pushed_at") or metadata.get("updated_at"),
+            metadata={"repository": repository},
+        ))
+
     return json.dumps({
         "workspace_id": workspace_id,
         "repository": repository,
@@ -369,6 +440,8 @@ def github_retrieve(
         "relevant_recent_pull_requests": compact_pulls,
         "tree_summary": tree_summary,
         "readme_preview": readme,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
+        "evidence": normalized_evidence,
         "cache_reused": cache_reused,
     }, ensure_ascii=False, separators=(",", ":"))
 
@@ -520,6 +593,26 @@ def slack_retrieve(
     selected = [{k: v for k, v in item.items() if k != "_score"} for item in selected]
 
     conversation = snapshot["conversation"]
+    normalized_evidence = [
+        make_evidence(
+            evidence_id=f"slack:{channel}:{item.get('ts')}",
+            source_type="slack",
+            source_ref=f"{channel}/{item.get('ts')}",
+            kind="message",
+            content=item.get("text") or "(message text unavailable)",
+            timestamp=item.get("datetime"),
+            author=item.get("user") or None,
+            metadata={
+                "channel": channel,
+                "channel_name": conversation.get("name"),
+                "ts": item.get("ts"),
+                "thread_ts": item.get("thread_ts"),
+                "reply_count": item.get("reply_count", 0),
+            },
+        )
+        for item in selected
+        if item.get("text")
+    ]
     return json.dumps({
         "workspace_id": workspace_id,
         "channel": channel,
@@ -528,6 +621,8 @@ def slack_retrieve(
         "channel_purpose": ((conversation.get("purpose") or {}).get("value")),
         "query": query,
         "messages": selected,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
+        "evidence": normalized_evidence,
         "history_count": len(snapshot["messages"]),
         "cache_reused": cache_reused,
     }, ensure_ascii=False, separators=(",", ":"))
@@ -737,15 +832,36 @@ def notion_retrieve(
     ][:24]
 
     page = snapshot["page"]
+    page_title = _notion_page_title(page)
+    normalized_evidence = [
+        make_evidence(
+            evidence_id=f"notion:{page_id}:{block.get('id')}",
+            source_type="notion",
+            source_ref=f"{page_id}#{block.get('id')}",
+            kind=block.get("type") or "block",
+            content=block.get("text") or "(block text unavailable)",
+            timestamp=block.get("last_edited_time"),
+            metadata={
+                "page_id": page_id,
+                "page_title": page_title,
+                "page_url": page.get("url"),
+                "depth": block.get("depth"),
+            },
+        )
+        for block in selected
+        if block.get("text")
+    ]
     return json.dumps({
         "workspace_id": workspace_id,
         "page_id": page_id,
-        "page_title": _notion_page_title(page),
+        "page_title": page_title,
         "page_url": page.get("url"),
         "created_time": page.get("created_time"),
         "last_edited_time": page.get("last_edited_time"),
         "query": query,
         "blocks": selected,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
+        "evidence": normalized_evidence,
         "total_blocks_read": len(blocks),
         "cache_reused": cache_reused,
     }, ensure_ascii=False, separators=(",", ":"))
@@ -831,9 +947,29 @@ def demo_context_retrieve(query: str) -> str:
         },
     ]
 
+    evidence = [
+        {
+            **item,
+            **make_evidence(
+                evidence_id=f"demo:{item.get('source')}:{index}",
+                source_type=item.get("source") or "demo",
+                source_ref=item.get("ref") or f"demo-{index}",
+                kind="claim",
+                content=item.get("claim") or "(claim unavailable)",
+                timestamp=item.get("date"),
+                metadata={
+                    key: value for key, value in item.items()
+                    if key not in {"source", "ref", "date", "claim"}
+                },
+            ),
+        }
+        for index, item in enumerate(evidence)
+    ]
+
     return json.dumps({
         "workspace_id": "demo",
         "query": query,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
         "evidence": evidence,
         "rules": {
             "preserve_conflicts": True,
@@ -1156,10 +1292,32 @@ def document_retrieve(
             "truncated": fetched["truncated"],
         })
 
+    normalized_evidence = [
+        make_evidence(
+            evidence_id=f"document:{item['document_id']}:{item['offset']}",
+            source_type="document",
+            source_ref=f"{item['title']}#offset={item['offset']}",
+            kind="document_excerpt",
+            content=item["body"],
+            timestamp=item.get("timestamp"),
+            metadata={
+                "document_id": item["document_id"],
+                "title": item["title"],
+                "score": item["score"],
+                "offset": item["offset"],
+                "next_offset": item["next_offset"],
+                "truncated": item["truncated"],
+            },
+        )
+        for item in evidence
+    ]
+
     return json.dumps({
         "workspace_id": workspace_id,
         "query": query,
         "results": evidence,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
+        "evidence": normalized_evidence,
         "total_matches": searched["total_matches"],
     }, ensure_ascii=False, indent=2)
 
