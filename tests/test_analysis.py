@@ -143,6 +143,9 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("Finality 보존", prompt)
         self.assertIn("일반적인 가능성만으로 그 결정을 VERIFY BEFORE USE에 다시 넣지 않는다", prompt)
         self.assertIn("확인되지 않은 세부사항만 DO NOT ASSUME", prompt)
+        self.assertIn("final 결정에 의해 명시적으로 대체된 tentative/candidate 안은 MISSING이 아니다", prompt)
+        self.assertIn("가상의 가능성을 새 MISSING으로 만들지 않는다", prompt)
+        self.assertIn("정확한 MCP callable identifier", prompt)
         self.assertIn("reopening signal", prompt)
 
     def test_mcp_tool_trace_prefers_full_identifier_from_source_map(self):
@@ -165,6 +168,30 @@ class AnalysisTests(unittest.TestCase):
 - mcp__mabc_sources__slack_retrieve(workspace_id=ws_x, channel=C012ABCDEF)
 """
         self.assertEqual(CliHermesRunner._count_mcp_calls(stdout), 1)
+        self.assertEqual(
+            CliHermesRunner._extract_mcp_tools(stdout),
+            ["mcp__mabc_sources__slack_retrieve"],
+        )
+
+    def test_mcp_tool_trace_recovers_slack_leaf_from_truncated_trace(self):
+        stdout = """⚡ mcp__mabc
+[TASK]
+- x
+[MUST KNOW]
+- Slack retrieval은 search/get 대신 slack_retrieve 한 번으로 가져온다.
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- Slack channel C012ABCDEF, message ts 1789840639.185659
+"""
         self.assertEqual(
             CliHermesRunner._extract_mcp_tools(stdout),
             ["mcp__mabc_sources__slack_retrieve"],
