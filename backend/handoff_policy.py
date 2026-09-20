@@ -72,6 +72,27 @@ def _looks_like_retrieval_mechanics(text: str) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
 
 
+def _looks_like_analysis_scope_metadata(text: str) -> bool:
+    """Detect facts about this analysis run's configured workspace/sources.
+
+    Keep project facts such as "Workspace isolation is implemented" intact.
+    Only remove self-referential execution state such as "this workspace is
+    GitHub-only" or "Slack is not connected in the current workspace".
+    """
+    patterns = (
+        r"(?:이|현재|해당)\s*workspace.*(?:only|연결|등록|source|connector|retrieve|근거|scope)",
+        r"(?:this|current)\s+(?:analysis\s+)?workspace.*(?:only|connected|not connected|source|connector|retriev|valid evidence|scope)",
+        r"(?:현재|해당)\s*(?:분석|task).*workspace.*(?:source|connector|retrieve|근거)",
+        r"(?:이|현재|해당)\s*workspace에서.*(?:사용 가능|사용할 수|유효한 근거|연결|retrieve)",
+        r"(?:slack_retrieve|notion_retrieve|github_retrieve|document_retrieve).*"
+        r"(?:이|현재|해당)\s*workspace",
+        r"(?:이|현재|해당)\s*workspace.*(?:slack_retrieve|notion_retrieve|github_retrieve|document_retrieve)",
+        r"(?:이 task 수행 시점|현재 분석 시점).*(?:source|connector|retrieve|근거)",
+        r"(?:source|connector).*(?:이|현재|해당)\s*workspace.*(?:없|연결되지|등록되지)",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
 def _is_superseded_history(text: str) -> bool:
     return (
         any(marker in text for marker in TENTATIVE_MARKERS)
@@ -123,6 +144,16 @@ def sanitize_handoff(handoff: str) -> str:
             if text in {"- none", "none"}:
                 continue
 
+            semantic_sections = {
+                "[MUST KNOW]",
+                "[CONSTRAINTS]",
+                "[USEFUL IF SPACE ALLOWS]",
+                "[VERIFY BEFORE USE]",
+                "[DO NOT ASSUME]",
+            }
+            if section in semantic_sections and _looks_like_analysis_scope_metadata(text):
+                continue
+
             if section == "[CONSTRAINTS]" and _looks_like_retrieval_mechanics(text):
                 continue
 
@@ -139,7 +170,13 @@ def sanitize_handoff(handoff: str) -> str:
     rendered: list[str] = []
     for section in SECTION_NAMES:
         rendered.append(section)
-        if section in {"[CONSTRAINTS]", "[VERIFY BEFORE USE]", "[DO NOT ASSUME]"}:
+        if section in {
+            "[MUST KNOW]",
+            "[CONSTRAINTS]",
+            "[USEFUL IF SPACE ALLOWS]",
+            "[VERIFY BEFORE USE]",
+            "[DO NOT ASSUME]",
+        }:
             items = filtered(section)
             rendered.extend(items if items else ["- None"])
         else:
