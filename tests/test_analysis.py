@@ -318,6 +318,42 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn("등록된 channel만 사용", cleaned)
         self.assertNotIn("연결된 page만 사용", cleaned)
 
+    def test_handoff_sanitizer_drops_lone_final_from_conflicts_and_promotes_it(self):
+        raw = """[TASK]
+- 배포 결정 정리
+[MUST KNOW]
+- Slack self-correction에서 토요일로 최종 결정됐다.
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- Slack 채널에 새 멤버 U2가 참여했다.
+[UNRESOLVED CONFLICTS]
+- Slack: 다음 배포 = 토요일 (최종 결정), 2026-09-19, U1
+[VERIFY BEFORE USE]
+- Slack 환경변수명은 Slack 메시지로만 확인했고 GitHub 코드와의 일치 여부는 이 retrieval 단계에서 교차 확인하지 않았다.
+[DO NOT ASSUME]
+- Slack 채널 외 다른 배포 일정/환경변수/설정값이 추가로 확정되어 있다는 사실.
+[SOURCE MAP]
+- slack:C1/123 — 결정 메시지
+- slack:C1/999 — Slack 멤버 참여 이벤트
+- retrieval provenance: github=owner/repo(5 evidence), slack=C1(3 evidence)
+- mcp__mabc_sources__workspace_retrieve(workspace_id=ws_x, source_types=github,slack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("토요일", cleaned)
+        self.assertIn("[UNRESOLVED CONFLICTS]\n- None", cleaned)
+        self.assertIn("[VERIFY BEFORE USE]\n- None", cleaned)
+        self.assertIn("[DO NOT ASSUME]\n- None", cleaned)
+        self.assertNotIn("새 멤버", cleaned)
+        self.assertNotIn("멤버 참여 이벤트", cleaned)
+        self.assertNotIn("retrieval provenance", cleaned)
+
+    def test_mcp_call_count_does_not_double_count_truncated_and_full_render_of_one_call(self):
+        trace = """⚡ mcp__mabc
+⚡ mcp__mabc_sources__workspace_retrieve
+"""
+        self.assertEqual(CliHermesRunner._count_mcp_calls(trace), 1)
+
     def test_handoff_sanitizer_resolves_split_claim_a_b_tentative_to_final(self):
         raw = """[TASK]
 - MCP 및 배포 결정 정리
