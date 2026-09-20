@@ -18,6 +18,25 @@ function AssistantCard({ message, onRetry }) {
   const mcpTools = Array.isArray(trace.mcp_tools)
     ? [...new Set(trace.mcp_tools.filter(Boolean))]
     : []
+  const retrievalTiming = trace?.retrieval_timing_ms &&
+    typeof trace.retrieval_timing_ms === 'object'
+    ? trace.retrieval_timing_ms
+    : {}
+  const aggregateMs = typeof retrievalTiming.aggregate === 'number'
+    ? retrievalTiming.aggregate
+    : null
+  const residualSec = aggregateMs != null && typeof elapsedSec === 'number'
+    ? Math.max(0, elapsedSec - aggregateMs / 1000)
+    : null
+  const timingParts = aggregateMs == null
+    ? []
+    : [
+        `retrieval ${(aggregateMs / 1000).toFixed(1)}s`,
+        ...['github', 'slack', 'notion', 'document']
+          .filter((key) => typeof retrievalTiming[key] === 'number')
+          .map((key) => `${key} ${(retrievalTiming[key] / 1000).toFixed(1)}s`),
+        residualSec == null ? null : `agent + generation ${residualSec.toFixed(1)}s`,
+      ].filter(Boolean)
 
   return (
     <div className={`assistant-card assistant-card--${status}`}>
@@ -82,6 +101,12 @@ function AssistantCard({ message, onRetry }) {
               <div className="result-tools" title={mcpTools.join('\n')}>
                 <span className="result-tools-label">MCP used</span>
                 <span>{mcpTools.map(readableMcpTool).join(' · ')}</span>
+              </div>
+            )}
+            {timingParts.length > 0 && (
+              <div className="result-tools" title="Retrieval timing is measured inside workspace_retrieve; remaining time includes Hermes and model generation.">
+                <span className="result-tools-label">Timing</span>
+                <span>{timingParts.join(' · ')}</span>
               </div>
             )}
           </div>
