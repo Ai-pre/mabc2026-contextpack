@@ -318,6 +318,34 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn("등록된 channel만 사용", cleaned)
         self.assertNotIn("연결된 page만 사용", cleaned)
 
+    def test_handoff_sanitizer_resolves_self_correction_even_when_conflict_text_says_no_reopening_evidence(self):
+        raw = """[TASK]
+- 배포 결정 정리
+[MUST KNOW]
+- None
+[CONSTRAINTS]
+- 등록된 Workspace Source만 근거로 사용한다(이 workspace: github owner/repo, slack C1).
+[USEFUL IF SPACE ALLOWS]
+- Slack 참여자 진입 메시지는 결정 사항과 직접 관련 없어 참고 정보다.
+[UNRESOLVED CONFLICTS]
+- Slack에서 "다음 배포는 금요일로 논의 중이다" 뒤에 "아니다. 다음 배포는 토요일로 최종 결정했다"가 이어졌다. tentative→final 대체 관계이며 이후 reopening됐다고 볼 증거는 여기엔 없다. 그런데도 conflict로 남긴다. (source: slack:C1/123)
+[VERIFY BEFORE USE]
+- 토요일 최종 결정 이후 재논의/번복이 있었는지 여부는 현재 evidence로 확인할 수 없다.
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- slack:C1/123 — 결정 메시지
+- slack:C1/999 — 참여자 진입 메시지, 결정 사항과 직접 관련 없어 참고
+- mcp__mabc_sources__workspace_retrieve(workspace_id=ws_x, source_types=github,slack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("토요일로 최종 결정했다", cleaned)
+        self.assertIn("[CONSTRAINTS]\n- None", cleaned)
+        self.assertIn("[UNRESOLVED CONFLICTS]\n- None", cleaned)
+        self.assertIn("[VERIFY BEFORE USE]\n- None", cleaned)
+        self.assertNotIn("금요일로 논의 중", cleaned)
+        self.assertNotIn("참여자 진입 메시지", cleaned)
+
     def test_handoff_sanitizer_promotes_self_corrected_final_from_conflict(self):
         raw = """[TASK]
 - 배포 결정 정리
