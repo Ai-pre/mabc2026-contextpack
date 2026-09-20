@@ -485,6 +485,33 @@ class AnalysisTests(unittest.TestCase):
             self.assertEqual(response.status_code, 400)
             run.assert_not_called()
 
+    def test_runner_accepts_final_handoff_emitted_on_stderr(self):
+        stderr = """[TASK]
+- Cross-source 정리
+[MUST KNOW]
+- GitHub와 Slack 근거를 종합했다.
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__github_retrieve(workspace_id=ws_x, repository=owner/repo)
+"""
+        stdout = "⚡ mcp__mabc_sources__github_retrieve\n"
+        with patch(
+            "backend.hermes_runner.subprocess.run",
+            return_value=SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr),
+        ):
+            result = api.runner.run("Test prompt", workspace_id="demo")
+        self.assertIn("GitHub와 Slack 근거를 종합했다", result.handoff)
+        self.assertEqual(result.mcp_tool_calls, 1)
+
     def test_runner_recovers_complete_handoff_after_iteration_budget(self):
         stdout = """⚡ mcp__mabc_sources__github_retrieve
 ⚡ mcp__mabc_sources__slack_retrieve
@@ -673,7 +700,10 @@ Resume this session with:
         args = launch.call_args.args[0]
         self.assertEqual(args[1:5], ["chat", "--oneshot", "--skills", "context-pack"])
         self.assertNotIn("--toolsets", args)
-        self.assertEqual(args[args.index("--max-turns") + 1], "8")
+        self.assertEqual(
+            args[args.index("--max-turns") + 1],
+            str(api.runner.max_turns),
+        )
         self.assertEqual(launch.call_args.kwargs["env"]["CONTEXTPACK_WORKSPACE_ID"], scope)
         self.assertEqual(os.environ.get("CONTEXTPACK_WORKSPACE_ID"), previous)
         self.assertTrue(result.handoff.startswith("[TASK]"))
