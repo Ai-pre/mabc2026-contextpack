@@ -356,6 +356,57 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn("멤버 참여 이벤트", cleaned)
         self.assertNotIn("retrieval provenance", cleaned)
 
+    def test_handoff_sanitizer_drops_degenerate_finality_label_and_join_events(self):
+        raw = """[TASK]
+- 최근 결정 정리
+[MUST KNOW]
+- 다음 배포는 토요일로 최종 결정됐다.
+- 최종 결정
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- slack:C1/123 — 결정 메시지
+- slack:C1/999 / slack:C1/998 (join events) — 이번 주제 관련 결정 근거로는 사용하지 않음.
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("다음 배포는 토요일로 최종 결정됐다", cleaned)
+        self.assertNotIn("\n- 최종 결정\n", cleaned)
+        self.assertNotIn("join events", cleaned)
+
+    def test_extract_mcp_tools_uses_aggregate_timing_to_recover_truncated_trace(self):
+        trace = "⚡ mcp__mabc\n"
+        handoff = """[TASK]
+- x
+[MUST KNOW]
+- slack_retrieve와 notion_retrieve가 프로젝트에 있다.
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- github:repo#PR1
+"""
+        tools = CliHermesRunner._extract_mcp_tools(
+            trace,
+            handoff=handoff,
+            retrieval_timing_ms={"aggregate": 1234.0, "github": 1200.0, "slack": 500.0},
+        )
+        self.assertEqual(tools, ["mcp__mabc_sources__workspace_retrieve"])
+
     def test_mcp_call_count_does_not_double_count_truncated_and_full_render_of_one_call(self):
         trace = """⚡ mcp__mabc
 ⚡ mcp__mabc_sources__workspace_retrieve
