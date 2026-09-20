@@ -380,6 +380,7 @@ def build_agent_prompt(req, workspace=None):
 - MCP 서버 이름 자체를 tool 이름으로 호출하지 않는다. Hermes가 실제로 노출한 개별 source tool을 사용한다.
 - **Stop early:** 충분한 Evidence를 확보한 뒤 같은 사실을 재검색하지 않는다.
 - 검색되지 않은 정보는 모델의 기억이나 일반 상식으로 채우지 않는다. 합리적인 조회 후에도 없으면 DO NOT ASSUME으로 남긴다.
+- **Retrieval mechanics ≠ Handoff context:** workspace_id, 등록 Source 범위, connector 유무, MCP tool 이름/호출 횟수, "다른 채널을 탐색하지 않는다" 같은 접근 제어 규칙은 근거 수집을 위한 내부 실행 규칙이다. 이를 [MUST KNOW], [CONSTRAINTS], [USEFUL IF SPACE ALLOWS], [VERIFY BEFORE USE], [DO NOT ASSUME]에 복사하지 않는다. 필요한 경우 [SOURCE MAP]과 실행 trace에만 남긴다.
 
 ## 확인 요구사항
 
@@ -410,6 +411,7 @@ def build_agent_prompt(req, workspace=None):
    - final 결정에 의해 명시적으로 대체된 tentative/candidate 안은 MISSING이 아니다. "이전 안이 별도 확정으로 남았는지" 같은 가상의 가능성을 새 MISSING으로 만들지 않는다.
    - superseded tentative는 Task 이해에 꼭 필요할 때만 USEFUL IF SPACE ALLOWS에 과거 논의로 짧게 남기고, 필요 없으면 완전히 제외한다.
    - DO NOT ASSUME에는 현재 Task 수행에 실제로 필요한데 근거가 없는 세부사항만 넣는다.
+   - "다른 채널/문서에 추가 논의가 있을 수 있다", "현재 retrieve 밖에 더 많은 정보가 있을 수 있다", "추가 확인이 안전하다" 같은 보편적인 불확실성/면책 문구는 MISSING이 아니므로 DO NOT ASSUME에 넣지 않는다.
 
 4. **Irrelevant (현재 Task와 무관한 정보)**
    - 현재 Role과 Task에 무관한 정보는 ContextPack에 포함하지 않는다.
@@ -427,6 +429,8 @@ context-pack Skill의 최종 Handoff Context만 출력한다.
 - patch/diff/요약/설명/후기/로컬 파일 경로를 출력하지 않는다.
 - Handoff 본문 뒤에는 어떤 문장도 추가하지 않는다.
 - 동일 내용을 여러 섹션에 장문으로 반복하지 않는다. 각 항목은 가능한 한 1~2문장으로 압축한다.
+- [CONSTRAINTS]에는 다음 작업자가 실제 업무 수행 중 지켜야 할 정책·범위·일정·기술·고객 제약만 쓴다. workspace_id, connector 연결 여부, source scope, MCP 사용 규칙 같은 ContextPack 내부 retrieval 제약은 넣지 않는다.
+- [DO NOT ASSUME]에는 Task-critical missing fact만 쓴다. 단순히 "현재 조회 범위 밖에 다른 정보가 있을 수 있음"이라는 일반론은 넣지 않는다.
 - UNRESOLVED CONFLICTS에 들어간 fact의 한쪽 값을 MUST KNOW/CONSTRAINTS에 확정 사실로 중복 기재하지 않는다.
 - [SOURCE MAP]의 각 항목에는 근거를 가져온 **정확한 MCP callable identifier**를 포함한다. 예: `mcp__mabc_sources__slack_retrieve(...)`. `mcp__mabc`처럼 잘린 서버 이름만 쓰지 않는다.
 - 마지막 [SOURCE MAP] 내용이 끝나면 응답을 즉시 종료한다.
