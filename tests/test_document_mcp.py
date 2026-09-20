@@ -20,7 +20,7 @@ from backend.workspace_store import SourceNotFound, WorkspaceStore, WorkspaceVal
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEMO_TOOL_NAMES = {f"{connector}_{action}" for connector in ("github", "jira", "slack", "notion")
                    for action in ("search", "get")}
-TOOL_NAMES = DEMO_TOOL_NAMES | {"demo_context_retrieve", "github_retrieve", "slack_retrieve", "notion_retrieve", "document_retrieve", "document_search", "document_get"}
+TOOL_NAMES = DEMO_TOOL_NAMES | {"workspace_retrieve", "demo_context_retrieve", "github_retrieve", "slack_retrieve", "notion_retrieve", "document_retrieve", "document_search", "document_get"}
 
 
 class DocumentMcpTests(unittest.TestCase):
@@ -128,6 +128,8 @@ class DocumentMcpTests(unittest.TestCase):
                 for name in DEMO_TOOL_NAMES:
                     expected = {"query", "limit"} if name.endswith("search") else {"item_id"}
                     self.assertEqual(set(tools[name].input_schema["properties"]), expected)
+                self.assertEqual(set(tools["workspace_retrieve"].input_schema["properties"]),
+                                 {"workspace_id", "query", "source_types"})
                 self.assertEqual(set(tools["demo_context_retrieve"].input_schema["properties"]),
                                  {"query"})
                 self.assertEqual(set(tools["github_retrieve"].input_schema["properties"]),
@@ -177,6 +179,61 @@ class DocumentMcpTests(unittest.TestCase):
                     sources.github_search("pr-148")
                 with self.assertRaises(WorkspaceValidationError):
                     sources.document_search("demo", "")
+
+    def test_workspace_retrieve_aggregates_github_and_slack_once(self):
+        workspace_id = self.workspace()
+        self.store.add_github_source(workspace_id, "Ai-pre/mabc2026-contextpack")
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+
+        github_payload = json.dumps({
+            "evidence": [{
+                "evidence_id": "github:repo:pr:1",
+                "source_type": "github",
+                "kind": "pull_request",
+                "source_ref": "repo#PR1",
+                "content": "PR #1 merged",
+                "timestamp": "2026-09-19T00:00:00Z",
+                "author": None,
+                "metadata": {},
+            }]
+        })
+        slack_payload = json.dumps({
+            "evidence": [{
+                "evidence_id": "slack:C012ABCDEF:1",
+                "source_type": "slack",
+                "kind": "message",
+                "source_ref": "C012ABCDEF/1",
+                "content": "다음 배포는 토요일로 최종 결정",
+                "timestamp": "2026-09-19T01:00:00Z",
+                "author": "U1",
+                "metadata": {},
+            }]
+        })
+
+        with patch.object(sources, "github_retrieve", return_value=github_payload) as github, \
+             patch.object(sources, "slack_retrieve", return_value=slack_payload) as slack:
+            response = json.loads(sources.workspace_retrieve(
+                workspace_id,
+                "MCP 배포 결정사항",
+                "github,slack",
+            ))
+
+        self.assertEqual(response["requested_source_types"], ["github", "slack"])
+        self.assertEqual(
+            {item["source_type"] for item in response["evidence"]},
+            {"github", "slack"},
+        )
+        self.assertEqual(len(response["retrievals"]), 2)
+        github.assert_called_once_with(
+            workspace_id,
+            "MCP 배포 결정사항",
+            repository="Ai-pre/mabc2026-contextpack",
+        )
+        slack.assert_called_once_with(
+            workspace_id,
+            "MCP 배포 결정사항",
+            channel="C012ABCDEF",
+        )
 
     def test_live_github_retrieve_aggregates_registered_repository(self):
         workspace_id = self.workspace()
