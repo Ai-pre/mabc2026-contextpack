@@ -96,6 +96,8 @@ ContextPack은 **최소 권한 원칙의 context 버전**처럼 동작한다.
 - 내부 정보
 - 긴 원문
 - 불필요한 세부사항
+- ContextPack 내부 실행 메타데이터(workspace_id, connector 연결 여부, source allowlist, MCP tool 선택/호출 규칙)
+- "조회 범위 밖에 더 많은 정보가 있을 수 있음"처럼 모든 retrieval에 붙일 수 있는 일반적인 면책 문구
 
 민감한 정보가 업무에 필요한 경우에도 가능한 최소 범위만 전달한다.
 
@@ -223,7 +225,9 @@ Step 1의 Context Requirement Map 각각에 대해 `FOUND / PARTIAL / MISSING` �
 업무 수행에 반드시 필요한 핵심 Context.
 
 ## 5. Constraints
-반드시 지켜야 할 제한(정책, 가격, 범위, 일정, 기술적 제약, 고객 요구 등).
+다음 작업자가 실제 업무 수행 중 반드시 지켜야 할 제한(정책, 가격, 제품/업무 범위, 일정, 기술적 제약, 고객 요구 등).
+
+**포함하지 않는 것:** workspace_id, 연결된/연결되지 않은 connector 목록, 등록 Source 범위, MCP tool 이름·호출 규칙, ContextPack의 검색 제한. 이런 정보는 retrieval 실행 메타데이터이지 다음 Agent의 업무 제약이 아니다.
 
 ## 6. Useful Background / Useful Context Items
 도움이 되는 추가 맥락(USEFUL로 분류된 항목).
@@ -236,7 +240,15 @@ Step 1의 Context Requirement Map 각각에 대해 `FOUND / PARTIAL / MISSING` �
 오래되었거나 최신 여부가 불분명한 정보.
 
 ## 9. Missing Context
-업무 수행에 필요하지만 현재 자료에서 찾지 못한 정보.
+업무 수행에 필요하지만 현재 자료에서 찾지 못한 **구체적인 사실/조건**만 기록한다.
+
+다음은 MISSING으로 만들지 않는다:
+- "다른 채널/문서에 더 많은 논의가 있을 수 있다"
+- "현재 retrieve 결과 밖에 추가 정보가 있을 수 있다"
+- "추가 확인이 안전하다"
+- ContextPack이 접근하지 않은 Source가 존재할 가능성
+
+이런 문장은 모든 retrieval에 붙일 수 있는 일반적 불확실성일 뿐 Task-critical missing fact가 아니다.
 
 ## 10. Source Map
 Context Item → 원본 출처 위치.
