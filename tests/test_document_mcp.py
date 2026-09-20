@@ -224,7 +224,7 @@ class DocumentMcpTests(unittest.TestCase):
              patch.object(sources, "_github_api", side_effect=fake_api):
             raw = sources.github_retrieve(
                 workspace_id,
-                "ContextPack MCP deployment changes deploy hermes config",
+                "ContextPack structure MCP deployment changes deploy hermes config",
                 "Ai-pre/mabc2026-contextpack",
             )
 
