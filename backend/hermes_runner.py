@@ -34,7 +34,7 @@ class HermesRunResult:
 class CliHermesRunner:
     def __init__(self, timeout_sec: int = 300):
         self.timeout_sec = timeout_sec
-        self.max_turns = max(4, int(os.getenv("HERMES_MAX_TURNS", "12")))
+        self.max_turns = max(4, int(os.getenv("HERMES_MAX_TURNS", "8")))
         self.project_root = Path(__file__).resolve().parent
 
         self.hermes_bin = (
@@ -294,7 +294,7 @@ class CliHermesRunner:
                 return list(dict.fromkeys(full_handoff))
 
             aggregate_leafs = re.findall(
-                r"(?i)\b(demo_context_retrieve|document_retrieve|github_retrieve|slack_retrieve|notion_retrieve)\b",
+                r"(?i)\b(workspace_retrieve|demo_context_retrieve|document_retrieve|github_retrieve|slack_retrieve|notion_retrieve)\b",
                 handoff,
             )
             aggregate_leafs = list(dict.fromkeys(name.lower() for name in aggregate_leafs))
