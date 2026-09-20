@@ -166,6 +166,8 @@ v1에서는 사용자가 명시적으로 토큰 단위 제한을 요구하지 �
 - "Slack/Notion connector가 연결되어 있지 않다"
 - "현재 workspace에서 slack_retrieve를 사용할 수 없다"
 - "등록 Source가 없어서 이 connector를 조회하지 않았다"
+- "GitHub 근거는 연결된 repository만 사용한다"
+- "다른 repository/channel/page를 근거로 쓰지 않는다"
 
 위와 같은 내용은 retrieval/runtime metadata이므로 `[MUST KNOW]`, `[CONSTRAINTS]`, `[USEFUL IF SPACE ALLOWS]`, `[VERIFY BEFORE USE]`, `[DO NOT ASSUME]`에 넣지 않는다. 필요한 경우 실행 trace와 `[SOURCE MAP]`에서만 추적한다.
 
