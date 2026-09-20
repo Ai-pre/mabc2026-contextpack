@@ -205,6 +205,20 @@ def _is_hypothetical_reopening_gap(text: str) -> bool:
     )
 
 
+def _is_low_value_retrieved_item(text: str) -> bool:
+    """Drop retrieved noise explicitly described as irrelevant to the task."""
+    patterns = (
+        r"증거 가치 낮음",
+        r"결정 사항과 직접 관련 없어",
+        r"결정사항과 직접 관련 없어",
+        r"참여자? 진입 메시지",
+        r"채널 참여 메시지",
+        r"join message",
+        r"joined (?:the )?channel",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
 def _is_generic_coverage_disclaimer(text: str) -> bool:
     patterns = (
         r"위 .* 외.*추가 논의",
@@ -275,6 +289,9 @@ def sanitize_handoff(handoff: str) -> str:
             if section in semantic_sections and _is_generic_retrieval_coverage(text):
                 continue
 
+            if section in semantic_sections and _is_low_value_retrieved_item(text):
+                continue
+
             if section == "[UNRESOLVED CONFLICTS]":
                 if _is_absence_only_conflict(text) or _is_superseded_history(text):
                     continue
@@ -317,7 +334,7 @@ def sanitize_handoff(handoff: str) -> str:
             source_items = []
             for item in split_section_items(bodies.get(section, "")):
                 text = _normalized(item)
-                if re.search(r"(?:증거 가치 낮음|결정 사항과 직접 관련 없어|참여자? 진입 메시지|join message)", text):
+                if _is_low_value_retrieved_item(text):
                     continue
                 source_items.append(item)
             rendered.extend(source_items if source_items else ["- None"])
