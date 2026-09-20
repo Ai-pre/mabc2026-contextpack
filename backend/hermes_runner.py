@@ -34,6 +34,7 @@ class HermesRunResult:
 class CliHermesRunner:
     def __init__(self, timeout_sec: int = 300):
         self.timeout_sec = timeout_sec
+        self.max_turns = max(4, int(os.getenv("HERMES_MAX_TURNS", "12")))
         self.project_root = Path(__file__).resolve().parent
 
         self.hermes_bin = (
@@ -67,7 +68,7 @@ class CliHermesRunner:
             "--skills",
             "context-pack",
             "--max-turns",
-            "8",
+            str(self.max_turns),
             "-q",
             prompt,
         ]
@@ -106,6 +107,9 @@ class CliHermesRunner:
         clean_stdout = self._clean_output(
             proc.stdout or ""
         )
+        clean_combined = self._clean_output(
+            (proc.stdout or "") + "\n" + (proc.stderr or "")
+        )
 
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()
@@ -114,10 +118,13 @@ class CliHermesRunner:
                 r"(?i)iteration budget reached|response may be incomplete",
                 stdout + "\n" + stderr,
             ))
-            recovered_handoff = self._extract_handoff(clean_stdout) if budget_reached else ""
-            recovered_trace = self._clean_output(
-                (proc.stdout or "") + "\n" + (proc.stderr or "")
-            )
+            recovered_handoff = ""
+            if budget_reached:
+                recovered_handoff = (
+                    self._extract_handoff(clean_stdout)
+                    or self._extract_handoff(clean_combined)
+                )
+            recovered_trace = clean_combined
             recovered_calls = self._count_mcp_calls(recovered_trace)
             if recovered_handoff and recovered_calls > 0:
                 recovered_tools = self._extract_mcp_tools(
@@ -140,14 +147,11 @@ class CliHermesRunner:
             )
 
         # MCP trace는 stdout / stderr 양쪽에서 나올 수 있음
-        trace_text = self._clean_output(
-            (proc.stdout or "")
-            + "\n"
-            + (proc.stderr or "")
-        )
+        trace_text = clean_combined
 
-        handoff = self._extract_handoff(
-            clean_stdout
+        handoff = (
+            self._extract_handoff(clean_stdout)
+            or self._extract_handoff(clean_combined)
         )
 
         if not handoff:
@@ -175,9 +179,11 @@ class CliHermesRunner:
                 if missing
                 else " All section headers were detected; output contained invalid runtime/tool trace ordering."
             )
+            tail = clean_combined[-1800:].strip()
             raise HermesExecutionError(
                 "Hermes succeeded but Handoff Context could not be extracted."
                 + detail
+                + ("\nOutput tail:\n" + tail if tail else "")
             )
 
         # 이 값은 stdout에서 activation을 추측하는 값이 아니라
