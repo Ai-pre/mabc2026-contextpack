@@ -184,6 +184,7 @@ class TraceResponse(BaseModel):
     skill_used: bool
     mcp_tool_calls: int
     mcp_tools: list[str] = Field(default_factory=list)
+    retrieval_timing_ms: dict[str, float] = Field(default_factory=dict)
 
 
 class AnalyzeResponse(BaseModel):
@@ -407,6 +408,7 @@ def build_agent_prompt(req, workspace=None):
 - 검색되지 않은 정보는 모델의 기억이나 일반 상식으로 채우지 않는다. 합리적인 조회 후에도 없으면 DO NOT ASSUME으로 남긴다.
 - **Retrieval mechanics ≠ Handoff context:** workspace_id, 등록 Source 범위, connector 유무, MCP tool 이름/호출 횟수, "다른 채널을 탐색하지 않는다" 같은 접근 제어 규칙은 근거 수집을 위한 내부 실행 규칙이다. 이를 [MUST KNOW], [CONSTRAINTS], [USEFUL IF SPACE ALLOWS], [VERIFY BEFORE USE], [DO NOT ASSUME]에 복사하지 않는다. 필요한 경우 [SOURCE MAP]과 실행 trace에만 남긴다.
 - **Analysis workspace state ≠ Project evidence:** "현재 이 workspace는 GitHub-only다", "Slack/Notion이 연결되어 있지 않다", "이 source는 현재 workspace에서 사용할 수 없다" 같은 현재 분석 실행의 연결 상태는 프로젝트 사실이 아니다. 이런 문장은 semantic Handoff의 어느 섹션에도 넣지 않는다.
+- 특히 "Workspace에는 Slack 채널 X가 등록되어 있다", "live Notion page는 현재 연결되어 있지 않다", "notion_retrieve를 사용하지 않는다" 같은 **이번 실행의 Source 등록/미연결 상태**는 제거한다. 한 bullet에 프로젝트 결정과 섞였으면 등록/미연결 clause만 버리고 프로젝트 결정만 남긴다.
 - "GitHub 근거는 연결된 repository만 사용", "다른 repository/channel/page를 근거로 쓰지 않음" 같은 Source allowlist 문장도 동일하게 retrieval execution metadata다. [CONSTRAINTS]를 포함한 semantic Handoff에 넣지 않는다.
 - 반대로 repository/문서 자체가 말하는 제품 기능, 배포 상태, PR 상태, 코드 구조는 Project evidence다. 예: "PR #2가 open draft"는 VERIFY 대상이 될 수 있지만, "현재 분석 workspace에 Slack source가 없다"는 VERIFY/MISSING 대상이 아니다.
 - 하나의 문장에 analysis workspace metadata와 project uncertainty를 섞지 않는다. 프로젝트 근거만 별도 문장으로 남기고 실행 메타데이터는 버린다.
@@ -549,6 +551,7 @@ async def analyze(req: Request):
             "skill_used": result.skill_used,
             "mcp_tool_calls": result.mcp_tool_calls,
             "mcp_tools": result.mcp_tools,
+            "retrieval_timing_ms": result.retrieval_timing_ms,
         },
     }
 
