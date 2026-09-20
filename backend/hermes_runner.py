@@ -384,6 +384,26 @@ class CliHermesRunner:
                     if any(re.search(pattern, normalized) for pattern in generic_patterns):
                         continue
 
+                    # A superseded tentative option is not missing context.
+                    # If the item itself explains an earlier tentative/candidate
+                    # value and the later final decision that replaced it, drop
+                    # the whole item instead of re-stating resolved history.
+                    tentative_markers = (
+                        "논의 중", "검토 중", "제안", "초안", "예정", "후보", "고려 중"
+                    )
+                    final_markers = (
+                        "최종 결정", "최종 확정", "확정했", "확정됨", "확정 표현", "현재 상태"
+                    )
+                    replacement_markers = (
+                        "전에 있었", "이전", "대체", "더 이상", "현재", "최종"
+                    )
+                    if (
+                        any(marker in normalized for marker in tentative_markers)
+                        and any(marker in normalized for marker in final_markers)
+                        and any(marker in normalized for marker in replacement_markers)
+                    ):
+                        continue
+
                 if normalized not in {"- none", "none"}:
                     kept.append(item)
 
