@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 import backend.main as api
 from backend.document_parser import parse_document
 from backend.workspace_store import WorkspaceStore
-from hermes_runner import CliHermesRunner, HermesExecutionError, HermesTimeoutError
+from backend.hermes_runner import CliHermesRunner, HermesExecutionError, HermesTimeoutError
 
 ROOT = Path(__file__).resolve().parent.parent
 
