@@ -55,6 +55,11 @@ class DocumentMcpTests(unittest.TestCase):
         self.assertLess(len(raw), 7000)
         self.assertTrue(response["rules"]["preserve_conflicts"])
         self.assertEqual(response["rules"]["do_not_assume_missing_policy"], ["overseas partial refund"])
+        self.assertEqual(response["evidence_schema_version"], "1.0")
+        self.assertTrue(all({
+            "evidence_id", "source_type", "kind", "source_ref", "content",
+            "timestamp", "author", "metadata",
+        }.issubset(item) for item in response["evidence"]))
         refs = {item["ref"] for item in response["evidence"]}
         self.assertIn("PR #148", refs)
         self.assertIn("PR #152", refs)
@@ -229,6 +234,10 @@ class DocumentMcpTests(unittest.TestCase):
         )
         self.assertIn("deploy/hermes/config.yaml", response["tree_summary"]["query_paths"])
         self.assertIn("Live GitHub MCP", response["readme_preview"])
+        self.assertEqual(response["evidence_schema_version"], "1.0")
+        self.assertTrue(any(item["kind"] == "commit" for item in response["evidence"]))
+        self.assertTrue(any(item["kind"] == "pull_request" for item in response["evidence"]))
+        self.assertTrue(all(item["source_type"] == "github" for item in response["evidence"]))
 
         with patch.dict(os.environ, {"GITHUB_MCP_TOKEN": "test-token"}):
             with self.assertRaises(WorkspaceValidationError):
@@ -271,6 +280,11 @@ class DocumentMcpTests(unittest.TestCase):
         self.assertEqual(response["channel_name"], "payment-eng")
         self.assertEqual(response["messages"][0]["user"], "U2")
         self.assertIn("Slack connector", response["messages"][0]["text"])
+        self.assertEqual(response["evidence_schema_version"], "1.0")
+        self.assertEqual(response["evidence"][0]["source_type"], "slack")
+        self.assertEqual(response["evidence"][0]["kind"], "message")
+        self.assertEqual(response["evidence"][0]["author"], "U2")
+        self.assertIn("Slack connector", response["evidence"][0]["content"])
 
         second = self.store.create_workspace()["workspace_id"]
         os.environ["CONTEXTPACK_WORKSPACE_ID"] = second
@@ -345,6 +359,10 @@ class DocumentMcpTests(unittest.TestCase):
         self.assertEqual(response["total_blocks_read"], 3)
         texts = [item["text"] for item in response["blocks"]]
         self.assertIn("Notion API key 설정 필요", texts)
+        self.assertEqual(response["evidence_schema_version"], "1.0")
+        self.assertTrue(response["evidence"])
+        self.assertTrue(all(item["source_type"] == "notion" for item in response["evidence"]))
+        self.assertTrue(any("Notion API key 설정 필요" in item["content"] for item in response["evidence"]))
 
         second = self.store.create_workspace()["workspace_id"]
         os.environ["CONTEXTPACK_WORKSPACE_ID"] = second
@@ -387,6 +405,10 @@ class DocumentMcpTests(unittest.TestCase):
         self.assertEqual(set(response["results"][0]),
                          {"document_id", "title", "timestamp", "score", "offset",
                           "body", "next_offset", "truncated"})
+        self.assertEqual(response["evidence_schema_version"], "1.0")
+        self.assertEqual(len(response["evidence"]), len(response["results"]))
+        self.assertTrue(all(item["source_type"] == "document" for item in response["evidence"]))
+        self.assertTrue(all(item["kind"] == "document_excerpt" for item in response["evidence"]))
 
     def test_unicode_casefold_offsets_still_use_original_characters(self):
         # Use existing fixture text; helper offsets also cover case-fold expansions without storing test documents.
