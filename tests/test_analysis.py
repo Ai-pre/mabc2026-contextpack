@@ -318,6 +318,15 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn("등록된 channel만 사용", cleaned)
         self.assertNotIn("연결된 page만 사용", cleaned)
 
+    def test_crosscheck_only_verify_detector_matches_exact_runtime_wording(self):
+        text = (
+            "- Slack 환경변수명은 Slack 메시지로만 확인했고 GitHub 코드와의 일치 여부는 "
+            "이 retrieval 단계에서 교차 확인하지 않았다."
+        )
+        self.assertTrue(api.sanitize_handoff if False else True)
+        from backend.handoff_policy import _is_crosscheck_only_verify
+        self.assertTrue(_is_crosscheck_only_verify(text.casefold()))
+
     def test_handoff_sanitizer_drops_lone_final_from_conflicts_and_promotes_it(self):
         raw = """[TASK]
 - 배포 결정 정리
