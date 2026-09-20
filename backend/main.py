@@ -440,6 +440,8 @@ context-pack Skill의 최종 Handoff Context만 출력한다.
 - patch/diff/요약/설명/후기/로컬 파일 경로를 출력하지 않는다.
 - Handoff 본문 뒤에는 어떤 문장도 추가하지 않는다.
 - 동일 내용을 여러 섹션에 장문으로 반복하지 않는다. 각 항목은 가능한 한 1~2문장으로 압축한다.
+- [MUST KNOW]에는 **다음 작업의 판단/구현을 바꾸는 현재 사실·최근 결정·필수 제약**만 넣는다. 제품 소개, 고정 출력 형식, 일반 아키텍처 설명처럼 배경 성격이 강한 내용은 Task가 직접 요구하더라도 기본적으로 [USEFUL IF SPACE ALLOWS]로 내리고, 다음 작업을 실제로 바꾸는 경우에만 MUST KNOW로 올린다.
+- Task가 "최근 변경/배포/MCP 변경"과 "구조 파악"을 함께 요구하면 최근 변경사항을 MUST KNOW에 우선 배치하고, 구조 설명은 필요한 최소 범위만 USEFUL에 둔다.
 - [CONSTRAINTS]에는 다음 작업자가 실제 업무 수행 중 지켜야 할 정책·범위·일정·기술·고객 제약만 쓴다. workspace_id, connector 연결 여부, source scope, MCP 사용 규칙 같은 ContextPack 내부 retrieval 제약은 넣지 않는다.
 - [DO NOT ASSUME]에는 Task-critical missing fact만 쓴다. 단순히 "현재 조회 범위 밖에 다른 정보가 있을 수 있음"이라는 일반론은 넣지 않는다.
 - UNRESOLVED CONFLICTS에 들어간 fact의 한쪽 값을 MUST KNOW/CONSTRAINTS에 확정 사실로 중복 기재하지 않는다.
