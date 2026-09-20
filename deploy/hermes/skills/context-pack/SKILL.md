@@ -217,6 +217,7 @@ Handoff Context에서는 다음처럼 분리해 전달한다:
 최종 Handoff를 쓰기 직전에 decision topic별로 한 번만 점검한다.
 
 1. tentative/candidate 뒤에 그 안을 명시적으로 대체·확정·취소하는 final/authoritative claim이 있으면 **CONFLICT가 아니다**. final만 현재 상태로 사용한다.
+   - 특히 같은 메시지/같은 저자의 self-correction에서 "논의 중/검토 중" 뒤에 "아니다/정정/최종 결정/최종 확정"이 이어지면 뒤의 explicit final이 앞의 tentative를 대체한다. 두 문장을 둘 다 "확정 표현"으로 재분류하지 않는다.
 2. 한 Source의 final claim을 다른 Source가 언급하지 않는 것은 **Source silence**이며 CONFLICT가 아니다.
 3. 서로 양립할 수 없는 **final ↔ final** claim이 둘 이상일 때만 `[UNRESOLVED CONFLICTS]`에 남긴다.
 4. final 이후 실제 reopening evidence가 있을 때만 다시 VERIFY/CONFLICT를 검토한다. "나중에 바뀌었을 수도 있음"은 근거가 아니다.
