@@ -452,30 +452,9 @@ context-pack Skill의 최종 Handoff Context만 출력한다.
 - [SOURCE MAP]의 각 항목에는 근거를 가져온 **정확한 MCP callable identifier**를 포함한다. 예: `mcp__mabc_sources__slack_retrieve(...)`. `mcp__mabc`처럼 잘린 서버 이름만 쓰지 않는다.
 - 마지막 [SOURCE MAP] 내용이 끝나면 응답을 즉시 종료한다.
 
-정확한 출력 예:
-[TASK]
-- ...
-
-[MUST KNOW]
-- ...
-
-[CONSTRAINTS]
-- None
-
-[USEFUL IF SPACE ALLOWS]
-- None
-
-[UNRESOLVED CONFLICTS]
-- None
-
-[VERIFY BEFORE USE]
-- None
-
-[DO NOT ASSUME]
-- ...
-
-[SOURCE MAP]
-- source
+- 실제 Evidence를 사용해 각 섹션을 채운다. `...`, `source`, `<내용>` 같은 placeholder를 최종 출력에 그대로 쓰지 않는다.
+- 실제 내용이 없는 섹션만 정확히 `- None`으로 둔다.
+- [SOURCE MAP]에는 실제로 사용한 Source provenance와 callable identifier를 기록한다.
 
 여기서 끝."""
 
