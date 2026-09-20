@@ -185,7 +185,8 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("ContextPack 내부 retrieval 제약은 넣지 않는다", prompt)
         self.assertIn("보편적인 불확실성/면책 문구는 MISSING이 아니므로", prompt)
         self.assertIn("정확한 MCP callable identifier", prompt)
-        self.assertIn("reopening signal", prompt)
+        self.assertIn("실제 evidence", prompt)
+        self.assertIn("가상 reopening을 만들지 않는다", prompt)
 
     def test_runtime_prompt_hard_stops_with_one_aggregate_call_in_multi_source_workspace(self):
         workspace_id = self.store.create_workspace("GitHub + Slack")["workspace_id"]
@@ -343,6 +344,50 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("토요일로 최종 결정", cleaned)
         self.assertIn("일요일로 최종 확정", cleaned)
         self.assertNotIn("[UNRESOLVED CONFLICTS]\n- None", cleaned)
+
+    def test_handoff_sanitizer_drops_hypothetical_reopening_gap(self):
+        raw = """[TASK]
+- 배포 결정 정리
+[MUST KNOW]
+- 다음 배포는 토요일로 최종 결정됐다.
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- 토요일 배포의 정확한 실행 시각과 대상 환경은 현재 근거에 없다.
+- Slack에서 언급된 최종 결정 외에 추가 재조정/번복이 있었는지 여부.
+[SOURCE MAP]
+- mcp__mabc_sources__workspace_retrieve(workspace_id=ws_x, source_types=github,slack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("정확한 실행 시각과 대상 환경", cleaned)
+        self.assertNotIn("추가 재조정/번복이 있었는지 여부", cleaned)
+
+    def test_handoff_sanitizer_keeps_real_reopening_evidence(self):
+        raw = """[TASK]
+- 배포 결정 정리
+[MUST KNOW]
+- None
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- 토요일 최종 결정 이후 Slack에서 일정 재검토를 시작했다는 메시지가 확인됐다.
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__workspace_retrieve(workspace_id=ws_x, source_types=github,slack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("일정 재검토를 시작했다는 메시지가 확인됐다", cleaned)
 
     def test_handoff_sanitizer_drops_superseded_tentative_from_do_not_assume(self):
         raw = """[TASK]
