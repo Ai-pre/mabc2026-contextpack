@@ -296,7 +296,8 @@ Task:
 - 실제 reopening evidence가 없으면 가상의 재논의/번복 가능성을 만들지 않는다.
 - 다음 Agent의 판단/구현에 필요한 Project evidence만 남기고 workspace/source 연결 상태와 tool scope는 semantic section에서 제외한다.
 - [SOURCE MAP]에는 실제 호출한 정확한 MCP callable identifier와 사용한 evidence provenance를 남긴다.
-- 최종 Handoff Context 8개 section만 출력하고 [SOURCE MAP] 뒤에서 즉시 끝낸다.
+- 최종 Handoff는 정확히 [TASK] → [MUST KNOW] → [CONSTRAINTS] → [USEFUL IF SPACE ALLOWS] → [UNRESOLVED CONFLICTS] → [VERIFY BEFORE USE] → [DO NOT ASSUME] → [SOURCE MAP] 순서만 사용한다.
+- numbered report, # ContextPack, [SCRIPT_MAP], [호출 MCP tool] 같은 대체 header를 출력하지 않는다. [SOURCE MAP] 뒤에서 즉시 끝낸다.
 """
 
 @app.get("/health")
