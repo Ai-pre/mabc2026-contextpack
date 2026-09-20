@@ -97,6 +97,29 @@ def _looks_like_analysis_scope_metadata(text: str) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
 
 
+def _is_absence_only_conflict(text: str) -> bool:
+    """A missing corroborating source is not a conflicting claim."""
+    patterns = (
+        r"(?:교차\s*검증|cross[- ]?check|corroborat).*(?:안|못|없|not)",
+        r"(?:다른|타|other)\s*(?:source|근거).*(?:확인되지|언급\s*없|찾지\s*못|not found|no mention)",
+        r"(?:github|slack|notion|document|source).*(?:확인되지|언급\s*없|찾지\s*못|not found|no mention).*(?:충돌|conflict|검증)",
+        r"(?:충돌|conflict).*근거.*(?:확인되지|없음|not found)",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _is_generic_retrieval_coverage(text: str) -> bool:
+    """Drop statements about what the current retrieval did not cover."""
+    patterns = (
+        r"한\s*개\s*(?:메시지|문서|source).*(?:존재|근거|확인)",
+        r"다른\s*(?:채널|문서|repository|source).*(?:확인하지|확인되지|조회하지|탐색하지)",
+        r"(?:현재|이번)\s*(?:retrieve|retrieval|조회)\s*(?:결과|범위).*(?:확인되지|없|못)",
+        r"(?:별도|추가)\s*(?:충돌|conflict)\s*근거.*(?:확인되지|없)",
+        r"(?:other|additional)\s*(?:channels|documents|sources).*(?:not checked|not retrieved|not found)",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
 def _is_superseded_history(text: str) -> bool:
     return (
         any(marker in text for marker in TENTATIVE_MARKERS)
@@ -152,6 +175,7 @@ def sanitize_handoff(handoff: str) -> str:
                 "[MUST KNOW]",
                 "[CONSTRAINTS]",
                 "[USEFUL IF SPACE ALLOWS]",
+                "[UNRESOLVED CONFLICTS]",
                 "[VERIFY BEFORE USE]",
                 "[DO NOT ASSUME]",
             }
@@ -159,6 +183,12 @@ def sanitize_handoff(handoff: str) -> str:
                 continue
 
             if section in semantic_sections and _looks_like_retrieval_mechanics(text):
+                continue
+
+            if section in semantic_sections and _is_generic_retrieval_coverage(text):
+                continue
+
+            if section == "[UNRESOLVED CONFLICTS]" and _is_absence_only_conflict(text):
                 continue
 
             if section == "[VERIFY BEFORE USE]" and _is_superseded_history(text):
@@ -178,6 +208,7 @@ def sanitize_handoff(handoff: str) -> str:
             "[MUST KNOW]",
             "[CONSTRAINTS]",
             "[USEFUL IF SPACE ALLOWS]",
+            "[UNRESOLVED CONFLICTS]",
             "[VERIFY BEFORE USE]",
             "[DO NOT ASSUME]",
         }:
