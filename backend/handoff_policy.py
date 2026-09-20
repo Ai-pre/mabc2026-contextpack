@@ -260,6 +260,20 @@ def _is_provenance_only_item(text: str) -> bool:
     return bool(re.match(r"^-?\s*(?:근거|source|출처)\s*:", text))
 
 
+def _count_final_signals(items: list[str]) -> int:
+    return sum(
+        sum(text.count(marker) for marker in FINAL_MARKERS)
+        for text in (_normalized(item) for item in items)
+    )
+
+
+def _is_runtime_provenance_summary(text: str) -> bool:
+    return bool(re.search(
+        r"(?:retrieval\s+provenance|retrieval\s+summary|evidence\s+count)",
+        text,
+    ))
+
+
 def _is_hypothetical_reopening_gap(text: str) -> bool:
     """Drop invented uncertainty about a final decision being reopened later.
 
@@ -289,6 +303,9 @@ def _is_low_value_retrieved_item(text: str) -> bool:
         r"참여자? 진입 메시지",
         r"채널 참여 메시지",
         r"참여 이벤트",
+        r"새\s*멤버.*참여",
+        r"멤버\s*참여",
+        r"채널에?.*참여(?:했|함|했다)",
         r"결정 근거로는? 미사용",
         r"join message",
         r"joined (?:the )?channel",
@@ -308,6 +325,9 @@ def _is_generic_coverage_disclaimer(text: str) -> bool:
         r"more (?:messages|documents|sources|discussion).*may exist",
         r"outside (?:the )?(?:retrieval|current) scope",
         r"(?:slack|github|notion|document).*(?:외|밖).*추가.*(?:확정|결정|설정)",
+        r"교차\s*확인.*(?:않|못)",
+        r"(?:현재|이번|이)\s*retrieval.*(?:확인하지|검증하지|확인되지)",
+        r"(?:github|slack|notion|document).*(?:일치 여부|동일 여부).*(?:확인하지|검증하지|확인되지)",
     )
     return any(re.search(pattern, text) for pattern in patterns)
 
@@ -342,6 +362,21 @@ def sanitize_handoff(handoff: str) -> str:
             promoted = _extract_final_claim_from_superseded_conflict(item)
             if promoted:
                 promoted_must_know.append(promoted)
+
+    unresolved_candidates = [
+        item for item in conflict_items
+        if item not in resolved_conflict_items
+        and not _is_absence_only_conflict(_normalized(item))
+        and not _is_superseded_history(_normalized(item))
+    ]
+    if unresolved_candidates and _count_final_signals(unresolved_candidates) < 2:
+        for item in unresolved_candidates:
+            text = _normalized(item)
+            if any(marker in text for marker in FINAL_MARKERS):
+                cleaned = _clean_split_final_claim(item)
+                if cleaned:
+                    promoted_must_know.append(cleaned)
+            resolved_conflict_items.add(item)
 
     def filtered(section: str) -> list[str]:
         kept: list[str] = []
@@ -422,7 +457,7 @@ def sanitize_handoff(handoff: str) -> str:
             source_items = []
             for item in split_section_items(bodies.get(section, "")):
                 text = _normalized(item)
-                if _is_low_value_retrieved_item(text):
+                if _is_low_value_retrieved_item(text) or _is_runtime_provenance_summary(text):
                     continue
                 source_items.append(item)
             rendered.extend(source_items if source_items else ["- None"])
