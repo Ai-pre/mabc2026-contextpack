@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 import pathlib
 import re
 import urllib.error
@@ -217,6 +218,7 @@ def github_retrieve(
     repository structure. Repeated calls in the same Hermes session reuse the
     cached GitHub snapshot instead of repeating network requests.
     """
+    aggregate_started = time.perf_counter()
     _require_workspace(workspace_id)
     if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
         raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
@@ -1486,22 +1488,28 @@ def workspace_retrieve(
     evidence: list[dict[str, Any]] = []
     retrievals: list[dict[str, Any]] = []
 
-    def run_job(job: tuple[str, str, Any]) -> tuple[str, str, dict[str, Any] | None, str | None]:
+    def run_job(job: tuple[str, str, Any]) -> tuple[str, str, dict[str, Any] | None, str | None, float]:
         kind, source_ref, fn = job
+        started = time.perf_counter()
         try:
             payload = json.loads(fn())
-            return kind, source_ref, payload if isinstance(payload, dict) else {}, None
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            return kind, source_ref, payload if isinstance(payload, dict) else {}, None, duration_ms
         except (WorkspaceValidationError, ValueError, TypeError, json.JSONDecodeError) as exc:
-            return kind, source_ref, None, str(exc)
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            return kind, source_ref, None, str(exc), duration_ms
 
+    source_timings: dict[str, float] = {}
     with ThreadPoolExecutor(max_workers=min(8, max(1, len(jobs)))) as pool:
-        for kind, source_ref, payload, error in pool.map(run_job, jobs):
+        for kind, source_ref, payload, error, duration_ms in pool.map(run_job, jobs):
+            source_timings[kind] = max(source_timings.get(kind, 0.0), duration_ms)
             if error is not None:
                 retrievals.append({
                     "source_type": kind,
                     "source_ref": source_ref,
                     "status": "error",
                     "evidence_count": 0,
+                    "duration_ms": duration_ms,
                     "error": error,
                 })
                 continue
@@ -1513,7 +1521,25 @@ def workspace_retrieve(
                 "source_ref": source_ref,
                 "status": "ok",
                 "evidence_count": len(items),
+                "duration_ms": duration_ms,
             })
+
+    timing_ms = {
+        "aggregate": round((time.perf_counter() - aggregate_started) * 1000, 2),
+        **source_timings,
+    }
+
+    run_id = os.environ.get("CONTEXTPACK_RUN_ID", "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{8,80}", run_id):
+        timing_path = pathlib.Path("/tmp") / f"contextpack-retrieval-{run_id}.json"
+        try:
+            timing_path.write_text(
+                json.dumps(timing_ms, ensure_ascii=False, separators=(",", ":")),
+                encoding="utf-8",
+            )
+        except OSError:
+            # Timing is diagnostic only; retrieval success must not depend on it.
+            pass
 
     return json.dumps({
         "workspace_id": workspace_id,
@@ -1522,6 +1548,7 @@ def workspace_retrieve(
         "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
         "evidence": evidence,
         "retrievals": retrievals,
+        "timing_ms": timing_ms,
     }, ensure_ascii=False, separators=(",", ":"))
 
 
