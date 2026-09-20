@@ -13,6 +13,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 import mabc_mcp_server as sources
+import mabc_mcp_scoped_server as scoped_sources
 from backend.document_parser import parse_document
 from backend.workspace_store import SourceNotFound, WorkspaceStore, WorkspaceValidationError
 
@@ -119,6 +120,42 @@ class DocumentMcpTests(unittest.TestCase):
                 self.assertEqual(parameters["limit"].default, 10)
             else:
                 self.assertIn("error", json.loads(fn("missing")))
+
+    def test_scoped_server_exposes_only_workspace_retrieve_for_multi_source(self):
+        workspace = {
+            "is_demo": False,
+            "sources": [
+                {"source_type": "connector", "connector": "github", "repository": "owner/repo"},
+                {"source_type": "connector", "connector": "slack", "channel": "C012ABCDEF"},
+            ],
+        }
+        self.assertEqual(
+            scoped_sources._tool_names_for_workspace(workspace),
+            ("workspace_retrieve",),
+        )
+
+    def test_scoped_server_keeps_single_source_surface(self):
+        slack_only = {
+            "is_demo": False,
+            "sources": [
+                {"source_type": "connector", "connector": "slack", "channel": "C012ABCDEF"},
+            ],
+        }
+        self.assertEqual(
+            scoped_sources._tool_names_for_workspace(slack_only),
+            ("slack_retrieve",),
+        )
+
+        upload_only = {
+            "is_demo": False,
+            "sources": [
+                {"source_type": "upload", "id": "src_x"},
+            ],
+        }
+        self.assertEqual(
+            scoped_sources._tool_names_for_workspace(upload_only),
+            ("document_retrieve", "document_search", "document_get"),
+        )
 
     def test_all_ten_tools_have_stable_schemas_in_each_scope(self):
         for scope in ("demo", self.store.create_workspace()["workspace_id"]):
