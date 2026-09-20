@@ -140,10 +140,12 @@ class AnalysisTests(unittest.TestCase):
         prompt = run.call_args.args[0]
         self.assertIn("C012ABCDEF", prompt)
         self.assertIn("12345678-1234-1234-1234-123456789abc", prompt)
-        self.assertIn("slack_retrieve", prompt)
-        self.assertIn("notion_retrieve", prompt)
-        self.assertIn("등록되지 않은 채널", prompt)
-        self.assertIn("등록되지 않은 페이지", prompt)
+        self.assertIn("workspace_retrieve", prompt)
+        self.assertIn("source_types", prompt)
+        self.assertIn("Slack 근거는 이 channel들의 slack_retrieve 결과로만 제한한다", prompt)
+        self.assertIn("Notion 근거는 이 page들의 notion_retrieve 결과로만 제한한다", prompt)
+        self.assertIn("workspace_retrieve를 정확히 1회 호출", prompt)
+        self.assertIn("github_retrieve/slack_retrieve/notion_retrieve/document_retrieve를 별도로 호출하지 않는다", prompt)
 
     def test_runtime_prompt_distinguishes_tentative_from_final_decisions(self):
         workspace_id = self.store.create_workspace("Slack finality")["workspace_id"]
