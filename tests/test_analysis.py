@@ -1,5 +1,4 @@
 """Exercise the analysis boundary without starting an HTTP server or an LLM run."""
-import json
 import os
 import tempfile
 import unittest
@@ -24,12 +23,32 @@ class AnalysisTests(unittest.TestCase):
         self.store_patch = patch.object(api, "workspace_store", self.store)
         self.store_patch.start()
         self.client = TestClient(api.app)
-        # Reuse the existing saved demo response; it is only a test double for the CLI boundary.
-        saved = json.loads((ROOT / "response.json").read_text(encoding="utf-8-sig"))
-        self.result = SimpleNamespace(duration_sec=saved["duration_sec"], handoff=saved["handoff"],
-                                      skill_used=saved["trace"]["skill_used"],
-                                      mcp_tool_calls=saved["trace"]["mcp_tool_calls"],
-                                      mcp_tools=saved["trace"].get("mcp_tools", []))
+        # Keep the API boundary test self-contained. Do not depend on an
+        # untracked/local response.json being present in the Docker image.
+        handoff = """[TASK]
+- Test task
+[MUST KNOW]
+- Test evidence
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__demo_context_retrieve(query=test)
+"""
+        self.result = SimpleNamespace(
+            duration_sec=1.25,
+            handoff=handoff,
+            skill_used=True,
+            mcp_tool_calls=1,
+            mcp_tools=["mcp__mabc_sources__demo_context_retrieve"],
+        )
 
     def tearDown(self):
         self.client.close()
