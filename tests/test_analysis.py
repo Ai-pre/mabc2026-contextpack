@@ -167,6 +167,9 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("final 결정에 의해 명시적으로 대체된 tentative/candidate 안은 MISSING이 아니다", prompt)
         self.assertIn("가상의 가능성을 새 MISSING으로 만들지 않는다", prompt)
         self.assertIn("Retrieval mechanics ≠ Handoff context", prompt)
+        self.assertIn("Analysis workspace state ≠ Project evidence", prompt)
+        self.assertIn("현재 분석 실행의 연결 상태는 프로젝트 사실이 아니다", prompt)
+        self.assertIn("PR #2가 open draft", prompt)
         self.assertIn("공통 Evidence Contract", prompt)
         self.assertIn("evidence_schema_version", prompt)
         self.assertIn("source_type마다 별도의 Handoff 품질 규칙을 만들지 않는다", prompt)
@@ -203,6 +206,38 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("토요일로 최종 결정", cleaned)
         self.assertIn("mcp__mabc_sources__slack_retrieve", cleaned)
         self.assertNotIn("위 메시지 외에 채널 내 추가 논의", cleaned)
+
+    def test_handoff_sanitizer_removes_current_analysis_workspace_metadata_across_sections(self):
+        raw = """[TASK]
+- 최근 MCP 및 배포 변경 정리
+[MUST KNOW]
+- PR #2는 open draft이며 Slack/Notion connector 변경을 포함한다.
+- 이 workspace는 현재 GitHub-only이며 live Slack/Notion은 연결되지 않았다.
+[CONSTRAINTS]
+- PR #2는 아직 open draft이므로 현재 적용 완료 상태로 간주하지 않는다.
+- 이 workspace에 Slack/Notion source가 연결되어 있지 않다.
+[USEFUL IF SPACE ALLOWS]
+- README에는 retrieve-first architecture가 설명되어 있다.
+- 현재 workspace에서는 github_retrieve만 유효한 근거다.
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- PR #2는 open draft이므로 실제 운영 반영 여부를 확정하지 않는다.
+- 현재 이 workspace에 Slack source가 없으므로 Slack 적용 여부를 확인할 수 없다.
+[DO NOT ASSUME]
+- Cloud Run 실제 대상 환경과 trigger는 commit message만으로 확정하지 않는다.
+- Slack/Notion이 이 workspace에서 현재 사용 가능한지는 추정하지 않는다.
+[SOURCE MAP]
+- mcp__mabc_sources__github_retrieve(workspace_id=ws_x, repository=owner/repo)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("PR #2는 open draft", cleaned)
+        self.assertIn("Cloud Run 실제 대상 환경", cleaned)
+        self.assertIn("README에는 retrieve-first architecture", cleaned)
+        self.assertNotIn("GitHub-only", cleaned)
+        self.assertNotIn("현재 workspace에서는 github_retrieve만", cleaned)
+        self.assertNotIn("현재 이 workspace에 Slack source", cleaned)
+        self.assertNotIn("Slack/Notion이 이 workspace에서 현재 사용 가능한지", cleaned)
 
     def test_handoff_sanitizer_drops_superseded_tentative_from_do_not_assume(self):
         raw = """[TASK]
