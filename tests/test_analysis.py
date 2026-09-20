@@ -142,6 +142,8 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("둘은 CONFLICT가 아니다", prompt)
         self.assertIn("Finality 보존", prompt)
         self.assertIn("일반적인 가능성만으로 그 결정을 VERIFY BEFORE USE에 다시 넣지 않는다", prompt)
+        self.assertIn("그 topic은 VERIFY BEFORE USE에서 다시 언급하지 않는다", prompt)
+        self.assertIn("VERIFY BEFORE USE는 다른 검증 필요 사실이 없으면 반드시", prompt)
         self.assertIn("확인되지 않은 세부사항만 DO NOT ASSUME", prompt)
         self.assertIn("final 결정에 의해 명시적으로 대체된 tentative/candidate 안은 MISSING이 아니다", prompt)
         self.assertIn("가상의 가능성을 새 MISSING으로 만들지 않는다", prompt)
@@ -150,6 +152,33 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("보편적인 불확실성/면책 문구는 MISSING이 아니므로", prompt)
         self.assertIn("정확한 MCP callable identifier", prompt)
         self.assertIn("reopening signal", prompt)
+
+    def test_handoff_sanitizer_removes_retrieval_noise_and_superseded_verify(self):
+        raw = """[TASK]
+- Slack 논의 정리
+[MUST KNOW]
+- 다음 배포는 토요일로 최종 결정됐다.
+[CONSTRAINTS]
+- workspace_id ws_x에 등록된 Slack 채널의 slack_retrieve 결과로만 제한한다.
+- 연결된 live Notion page가 없으므로 notion_retrieve는 사용하지 않는다.
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- "금요일로 논의 중" 메시지가 있었지만 이후 같은 발화자가 "토요일로 최종 결정"이라고 확정했다. 금요일 일정은 확정이 아니다.
+[DO NOT ASSUME]
+- 위 메시지 외에 채널 내 추가 논의가 있는지는 본 retrieve 결과에서 확인되지 않았다.
+[SOURCE MAP]
+- mcp__mabc_sources__slack_retrieve(workspace_id=ws_x, channel=C012ABCDEF)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("[CONSTRAINTS]\n- None", cleaned)
+        self.assertIn("[VERIFY BEFORE USE]\n- None", cleaned)
+        self.assertIn("[DO NOT ASSUME]\n- None", cleaned)
+        self.assertIn("토요일로 최종 결정", cleaned)
+        self.assertIn("mcp__mabc_sources__slack_retrieve", cleaned)
+        self.assertNotIn("위 메시지 외에 채널 내 추가 논의", cleaned)
 
     def test_mcp_tool_trace_prefers_full_identifier_from_source_map(self):
         stdout = """⚡ mcp__mabc
