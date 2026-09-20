@@ -170,6 +170,8 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("공통 Evidence Contract", prompt)
         self.assertIn("evidence_schema_version", prompt)
         self.assertIn("source_type마다 별도의 Handoff 품질 규칙을 만들지 않는다", prompt)
+        self.assertIn("다음 작업의 판단/구현을 바꾸는 현재 사실·최근 결정·필수 제약", prompt)
+        self.assertIn("최근 변경사항을 MUST KNOW에 우선 배치", prompt)
         self.assertIn("ContextPack 내부 retrieval 제약은 넣지 않는다", prompt)
         self.assertIn("보편적인 불확실성/면책 문구는 MISSING이 아니므로", prompt)
         self.assertIn("정확한 MCP callable identifier", prompt)
