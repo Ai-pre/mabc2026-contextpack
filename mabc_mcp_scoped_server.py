@@ -38,37 +38,57 @@ def _scope() -> str:
     return value
 
 
-workspace_id = _scope()
-workspace = impl._STORE.get_workspace(workspace_id)
+def _tool_names_for_workspace(workspace: dict) -> tuple[str, ...]:
+    """Return the exact MCP surface for one bound workspace.
 
-if workspace.get("is_demo"):
-    for tool_name in (
-        "demo_context_retrieve",
-        "github_search", "github_get",
-        "jira_search", "jira_get",
-        "slack_search", "slack_get",
-        "notion_search", "notion_get",
-    ):
-        _register(tool_name)
-else:
+    Multi-source workspaces expose only workspace_retrieve. This makes the
+    single aggregate call a runtime-enforced boundary instead of a prompt-only
+    convention.
+    """
+    if workspace.get("is_demo"):
+        return (
+            "demo_context_retrieve",
+            "github_search", "github_get",
+            "jira_search", "jira_get",
+            "slack_search", "slack_get",
+            "notion_search", "notion_get",
+        )
+
     sources = workspace.get("sources", [])
-
-    if any(source.get("source_type") == "upload" for source in sources):
-        for tool_name in ("document_retrieve", "document_search", "document_get"):
-            _register(tool_name)
-
+    has_documents = any(source.get("source_type") == "upload" for source in sources)
     connectors = {
         source.get("connector")
         for source in sources
         if source.get("source_type") == "connector"
     }
 
+    active_kinds = (
+        (1 if has_documents else 0)
+        + (1 if "github" in connectors else 0)
+        + (1 if "slack" in connectors else 0)
+        + (1 if "notion" in connectors else 0)
+    )
+
+    if active_kinds > 1:
+        return ("workspace_retrieve",)
+
+    names: list[str] = []
+    if has_documents:
+        names.extend(("document_retrieve", "document_search", "document_get"))
     if "github" in connectors:
-        _register("github_retrieve")
+        names.append("github_retrieve")
     if "slack" in connectors:
-        _register("slack_retrieve")
+        names.append("slack_retrieve")
     if "notion" in connectors:
-        _register("notion_retrieve")
+        names.append("notion_retrieve")
+    return tuple(names)
+
+
+workspace_id = _scope()
+workspace = impl._STORE.get_workspace(workspace_id)
+
+for tool_name in _tool_names_for_workspace(workspace):
+    _register(tool_name)
 
 
 if __name__ == "__main__":
