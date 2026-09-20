@@ -187,7 +187,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("정확한 MCP callable identifier", prompt)
         self.assertIn("reopening signal", prompt)
 
-    def test_runtime_prompt_hard_stops_after_one_call_per_source_in_multi_source_workspace(self):
+    def test_runtime_prompt_hard_stops_with_one_aggregate_call_in_multi_source_workspace(self):
         workspace_id = self.store.create_workspace("GitHub + Slack")["workspace_id"]
         self.store.add_github_source(workspace_id, "Ai-pre/mabc2026-contextpack")
         self.store.add_slack_source(workspace_id, "C012ABCDEF")
@@ -204,8 +204,9 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("workspace_retrieve", prompt)
         self.assertIn("source_types", prompt)
         self.assertIn("Multi-source hard stop", prompt)
+        self.assertIn("MCP surface에는 workspace_retrieve만 노출된다", prompt)
         self.assertIn("workspace_retrieve를 정확히 1회 호출", prompt)
-        self.assertIn("개별 github_retrieve/slack_retrieve/notion_retrieve/document_retrieve를 추가 호출하지 않는다", prompt)
+        self.assertIn("첫 결과만으로 즉시 최종 Handoff를 작성한다", prompt)
 
     def test_handoff_sanitizer_removes_retrieval_noise_and_superseded_verify(self):
         raw = """[TASK]
