@@ -374,10 +374,9 @@ def build_agent_prompt(req, workspace=None):
             )
     elif not workspace["is_demo"] and active_source_kinds > 1:
         multi_source_rule = (
-            "\n- **Multi-source hard stop:** workspace_retrieve를 정확히 1회 호출한다. "
-            "개별 github_retrieve/slack_retrieve/notion_retrieve/document_retrieve를 추가 호출하지 않는다. "
-            "workspace_retrieve가 선택된 Source들을 내부에서 병렬로 한 번씩 조회한다. "
-            "그 첫 결과를 받으면 추가 tool call 없이 즉시 최종 Handoff를 작성한다."
+            "\n- **Multi-source hard stop:** 이 Workspace의 MCP surface에는 workspace_retrieve만 노출된다. "
+            "workspace_retrieve를 정확히 1회 호출하고, 내부에서 선택된 Source들을 병렬로 한 번씩 조회한 "
+            "첫 결과만으로 즉시 최종 Handoff를 작성한다."
         )
 
     return f"""나는 {req.role}다.
