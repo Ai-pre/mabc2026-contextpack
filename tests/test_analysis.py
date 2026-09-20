@@ -158,6 +158,8 @@ class AnalysisTests(unittest.TestCase):
         prompt = run.call_args.args[0]
         self.assertIn("논의 중/검토 중/제안/초안/예정/후보", prompt)
         self.assertIn("최종 결정/확정/승인/적용 결정/취소", prompt)
+        self.assertIn("Source silence is not conflict", prompt)
+        self.assertIn("별도 corroboration이 없다는 이유만으로 VERIFY/CONFLICT로 내리지 않는다", prompt)
         self.assertIn("둘은 CONFLICT가 아니다", prompt)
         self.assertIn("Finality 보존", prompt)
         self.assertIn("일반적인 가능성만으로 그 결정을 VERIFY BEFORE USE에 다시 넣지 않는다", prompt)
@@ -265,6 +267,57 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn("다른 repository를 근거로 쓰지", cleaned)
         self.assertNotIn("등록된 channel만 사용", cleaned)
         self.assertNotIn("연결된 page만 사용", cleaned)
+
+    def test_handoff_sanitizer_drops_source_silence_as_conflict(self):
+        raw = """[TASK]
+- 배포 결정 정리
+[MUST KNOW]
+- Slack에서 다음 배포는 토요일로 최종 결정됐다.
+- 별도 충돌 근거는 확인되지 않았다.
+[CONSTRAINTS]
+- Slack 근거는 한 개 메시지에만 존재하며 다른 채널은 확인하지 않았다.
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- Slack의 토요일 최종 결정은 GitHub에서 확인되지 않아 교차 검증이 되지 않는다. 따라서 확정 여부를 GitHub 근거로 검증할 수 없다.
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__slack_retrieve(workspace_id=ws_x, channel=C1)
+- mcp__mabc_sources__github_retrieve(workspace_id=ws_x, repository=owner/repo)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("토요일로 최종 결정", cleaned)
+        self.assertIn("[UNRESOLVED CONFLICTS]\n- None", cleaned)
+        self.assertIn("[CONSTRAINTS]\n- None", cleaned)
+        self.assertNotIn("별도 충돌 근거는 확인되지", cleaned)
+        self.assertNotIn("교차 검증이 되지 않는다", cleaned)
+
+    def test_handoff_sanitizer_preserves_true_cross_source_conflict(self):
+        raw = """[TASK]
+- 배포 결정 정리
+[MUST KNOW]
+- None
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- Slack은 토요일로 최종 결정했고 GitHub release note는 일요일로 최종 확정해 서로 충돌한다.
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__slack_retrieve(workspace_id=ws_x, channel=C1)
+- mcp__mabc_sources__github_retrieve(workspace_id=ws_x, repository=owner/repo)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("토요일로 최종 결정", cleaned)
+        self.assertIn("일요일로 최종 확정", cleaned)
+        self.assertNotIn("[UNRESOLVED CONFLICTS]\n- None", cleaned)
 
     def test_handoff_sanitizer_drops_superseded_tentative_from_do_not_assume(self):
         raw = """[TASK]
