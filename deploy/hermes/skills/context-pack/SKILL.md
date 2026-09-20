@@ -159,6 +159,7 @@ Handoff Context에서는 다음처럼 분리해 전달한다:
 - tentative claim은 필요할 때만 과거 논의/배경으로 `USEFUL`에 남기거나 제외한다.
 - 둘을 `UNRESOLVED CONFLICTS`로 올리지 않는다.
 - **Finality 보존 규칙:** final/authoritative claim 이후에 명시적인 reopening, 상충하는 확정 근거, 또는 stale 근거가 없다면 해당 결정을 `VERIFY BEFORE USE`에 중복시키지 않는다. "실제 상황은 바뀔 수 있음", "추가 확인이 안전함" 같은 일반적 가능성은 VERIFY 근거가 아니다.
+- tentative → final 대체 관계가 명확하고 reopening 근거가 없다면 그 decision topic은 `VERIFY BEFORE USE`에서 언급하지 않는다. 다른 검증 필요 사실이 없다면 해당 섹션은 정확히 `- None`이다.
 - final claim에 딸린 세부사항(정확한 시각, 담당자, 대상 환경 등)이 source에 없다면 final claim 자체를 약화시키지 않는다. 확인되지 않은 세부사항만 `DO NOT ASSUME`으로 분리한다.
 - final에 의해 명시적으로 대체된 tentative/candidate claim은 MISSING이 아니다. "이전 안이 별도 확정으로 남아 있을 수도 있음" 같은 가상의 가능성을 `DO NOT ASSUME`에 만들지 않는다.
 - superseded tentative는 현재 Task의 배경으로 꼭 필요할 때만 `USEFUL`에 한 줄로 남기고, 아니면 제외한다.
@@ -249,6 +250,7 @@ Step 1의 Context Requirement Map 각각에 대해 `FOUND / PARTIAL / MISSING` �
 - ContextPack이 접근하지 않은 Source가 존재할 가능성
 
 이런 문장은 모든 retrieval에 붙일 수 있는 일반적 불확실성일 뿐 Task-critical missing fact가 아니다.
+Task-critical missing fact가 실제로 하나도 없으면 coverage gap을 만들어 채우지 말고 `[DO NOT ASSUME]`을 `- None`으로 둔다.
 
 ## 10. Source Map
 Context Item → 원본 출처 위치.
