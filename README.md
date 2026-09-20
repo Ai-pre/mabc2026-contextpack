@@ -151,6 +151,9 @@ A real workspace only exposes evidence from sources registered to that workspace
 - `slack_retrieve`: metadata and recent messages from a registered Slack channel, ranked locally against the task
 - `notion_retrieve`: metadata and recursive block content from a registered Notion page, compacted to relevant blocks
 - `document_retrieve`: lexical search plus bounded reads for uploaded files
+- `workspace_retrieve`: 여러 Source 종류가 동시에 필요한 Task에서 GitHub/Slack/Notion/Document retriever를 내부 병렬 실행하고 공통 `evidence[]` 하나로 반환하는 multi-source fast path
+
+Multi-source workspace에서는 Agent가 개별 connector tool을 반복 호출하지 않고 `workspace_retrieve`를 한 번 호출하는 것을 기본 경로로 사용합니다. 각 provider 차이는 내부 retrieval에만 남고, 최종 Evidence와 Handoff Policy는 동일한 공통 contract를 사용합니다.
 
 The official granular GitHub Remote MCP remains an opt-in detail fallback with `GITHUB_REMOTE_MCP_ENABLED=1`; it is disabled by default. Jira remains demo-only for now.
 
