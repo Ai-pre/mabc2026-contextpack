@@ -48,6 +48,7 @@ class AnalysisTests(unittest.TestCase):
             skill_used=True,
             mcp_tool_calls=1,
             mcp_tools=["mcp__mabc_sources__demo_context_retrieve"],
+            retrieval_timing_ms={"aggregate": 250.0},
         )
 
     def tearDown(self):
@@ -67,6 +68,7 @@ class AnalysisTests(unittest.TestCase):
             "skill_used": self.result.skill_used,
             "mcp_tool_calls": self.result.mcp_tool_calls,
             "mcp_tools": self.result.mcp_tools,
+            "retrieval_timing_ms": self.result.retrieval_timing_ms,
         })
         self.assertEqual(run.call_args.kwargs, {"workspace_id": "demo", "github_enabled": False})
         prompt = run.call_args.args[0]
@@ -173,6 +175,7 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("Retrieval mechanics ≠ Handoff context", prompt)
         self.assertIn("Analysis workspace state ≠ Project evidence", prompt)
         self.assertIn("현재 분석 실행의 연결 상태는 프로젝트 사실이 아니다", prompt)
+        self.assertIn("이번 실행의 Source 등록/미연결 상태", prompt)
         self.assertIn("Source allowlist 문장도 동일하게 retrieval execution metadata", prompt)
         self.assertIn("PR #2가 open draft", prompt)
         self.assertIn("공통 Evidence Contract", prompt)
@@ -267,6 +270,30 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn("현재 workspace에서는 github_retrieve만", cleaned)
         self.assertNotIn("현재 이 workspace에 Slack source", cleaned)
         self.assertNotIn("Slack/Notion이 이 workspace에서 현재 사용 가능한지", cleaned)
+
+    def test_handoff_sanitizer_strips_runtime_registration_clause_but_keeps_project_fact(self):
+        raw = """[TASK]
+- MCP 결정 정리
+[MUST KNOW]
+- Slack connector 관련: Workspace에는 라이브 Slack 채널 C012ABCDEF가 등록되어 있으며 retrieval은 slack_retrieve 단일 호출로 수행한다.
+[CONSTRAINTS]
+- live Notion page는 현재 연결되어 있지 않다. notion_retrieve를 사용하지 않는다.
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__workspace_retrieve(workspace_id=ws_x, source_types=github,slack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("retrieval은 slack_retrieve 단일 호출로 수행한다", cleaned)
+        self.assertNotIn("C012ABCDEF가 등록되어", cleaned)
+        self.assertIn("[CONSTRAINTS]\n- None", cleaned)
+        self.assertNotIn("live Notion page는 현재 연결되어 있지", cleaned)
 
     def test_handoff_sanitizer_removes_source_allowlist_constraints(self):
         raw = """[TASK]
