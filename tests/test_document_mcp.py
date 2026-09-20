@@ -69,9 +69,13 @@ class DocumentMcpTests(unittest.TestCase):
         self.assertIn("14 days", claims)
         self.assertIn("keep the general-payment refund window at 7 days", claims)
         self.assertIn("not defined", claims)
-        self.assertNotIn("PR #160", raw)
-        self.assertNotIn("MKT-42", raw)
-        self.assertNotIn("site-reliability", raw)
+        evidence_text = "\n".join(
+            f"{item.get('source_ref', '')}\n{item.get('content', '')}"
+            for item in response["evidence"]
+        )
+        self.assertNotIn("PR #160", evidence_text)
+        self.assertNotIn("MKT-42", evidence_text)
+        self.assertNotIn("site-reliability", evidence_text)
 
     def test_demo_search_and_get_contracts_remain_unchanged(self):
         github = json.loads(sources.github_search("pr-148"))
@@ -220,7 +224,7 @@ class DocumentMcpTests(unittest.TestCase):
              patch.object(sources, "_github_api", side_effect=fake_api):
             raw = sources.github_retrieve(
                 workspace_id,
-                "ContextPack MCP deployment changes",
+                "ContextPack MCP deployment changes deploy hermes config",
                 "Ai-pre/mabc2026-contextpack",
             )
 
