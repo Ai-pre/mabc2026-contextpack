@@ -318,6 +318,52 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotIn("등록된 channel만 사용", cleaned)
         self.assertNotIn("연결된 page만 사용", cleaned)
 
+    def test_handoff_sanitizer_promotes_self_corrected_final_from_conflict(self):
+        raw = """[TASK]
+- 배포 결정 정리
+[MUST KNOW]
+- Slack connector는 read-only다.
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- 다음 배포 시점: Slack에서 "다음 배포는 금요일로 논의 중"이었다가 바로 이어서 "아니다. 다음 배포는 토요일로 최종 결정했다"는 표현이 나왔다. 두 문장이 충돌한다고 본다. (source: slack:C1/123)
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__workspace_retrieve(workspace_id=ws_x, source_types=github,slack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("다음 배포는 토요일로 최종 결정했다", cleaned)
+        self.assertIn("[UNRESOLVED CONFLICTS]\n- None", cleaned)
+        self.assertNotIn("금요일로 논의 중", cleaned)
+
+    def test_handoff_sanitizer_does_not_resolve_true_final_vs_final_conflict(self):
+        raw = """[TASK]
+- 배포 결정 정리
+[MUST KNOW]
+- None
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- Slack은 "토요일로 최종 결정했다"고 했고 GitHub release note는 "일요일로 최종 확정했다"고 해 서로 충돌한다.
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- None
+[SOURCE MAP]
+- mcp__mabc_sources__workspace_retrieve(workspace_id=ws_x, source_types=github,slack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("토요일로 최종 결정했다", cleaned)
+        self.assertIn("일요일로 최종 확정했다", cleaned)
+        self.assertNotIn("[UNRESOLVED CONFLICTS]\n- None", cleaned)
+
     def test_handoff_sanitizer_drops_source_silence_as_conflict(self):
         raw = """[TASK]
 - 배포 결정 정리
