@@ -129,6 +129,26 @@ def _is_superseded_history(text: str) -> bool:
     )
 
 
+def _is_hypothetical_reopening_gap(text: str) -> bool:
+    """Drop invented uncertainty about a final decision being reopened later.
+
+    Real reopening evidence belongs in VERIFY/CONFLICT. This only catches
+    absence-style speculation such as "whether there was another reversal".
+    """
+    reopening_terms = (
+        "재논의", "재검토", "재조정", "번복", "결정 변경", "취소",
+        "reopen", "reconsider", "reversal", "rolled back", "changed later",
+    )
+    hypothetical_terms = (
+        "있었는지", "여부", "확인되지", "확인할 수 없", "모르", "가능성",
+        "whether", "unknown", "not confirmed", "not verified", "may have",
+    )
+    return (
+        any(term in text for term in reopening_terms)
+        and any(term in text for term in hypothetical_terms)
+    )
+
+
 def _is_generic_coverage_disclaimer(text: str) -> bool:
     patterns = (
         r"위 .* 외.*추가 논의",
@@ -195,7 +215,11 @@ def sanitize_handoff(handoff: str) -> str:
                 continue
 
             if section == "[DO NOT ASSUME]":
-                if _is_generic_coverage_disclaimer(text) or _is_superseded_history(text):
+                if (
+                    _is_generic_coverage_disclaimer(text)
+                    or _is_superseded_history(text)
+                    or _is_hypothetical_reopening_gap(text)
+                ):
                     continue
 
             kept.append(item)
