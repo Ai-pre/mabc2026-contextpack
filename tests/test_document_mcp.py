@@ -238,6 +238,7 @@ class DocumentMcpTests(unittest.TestCase):
         )
         self.assertIn("deploy/hermes/config.yaml", response["tree_summary"]["query_paths"])
         self.assertIn("Live GitHub MCP", response["readme_preview"])
+        self.assertLessEqual(len(response["readme_preview"]), 900)
         self.assertEqual(response["evidence_schema_version"], "1.0")
         self.assertTrue(any(item["kind"] == "commit" for item in response["evidence"]))
         self.assertTrue(any(item["kind"] == "pull_request" for item in response["evidence"]))
@@ -246,6 +247,50 @@ class DocumentMcpTests(unittest.TestCase):
         with patch.dict(os.environ, {"GITHUB_MCP_TOKEN": "test-token"}):
             with self.assertRaises(WorkspaceValidationError):
                 sources.github_retrieve(workspace_id, "x", "other/repo")
+
+    def test_live_github_retrieve_does_not_always_inject_readme_overview(self):
+        workspace_id = self.workspace()
+        self.store.add_github_source(workspace_id, "Ai-pre/mabc2026-contextpack")
+
+        def fake_api(path):
+            if path == "/repos/Ai-pre/mabc2026-contextpack":
+                return {
+                    "description": "Context handoff",
+                    "default_branch": "main",
+                    "updated_at": "2026-09-20T00:00:00Z",
+                    "pushed_at": "2026-09-20T00:00:00Z",
+                }
+            if "/commits?" in path:
+                return [{
+                    "sha": "abc123456789",
+                    "commit": {
+                        "message": "deploy: update Cloud Run container startup",
+                        "author": {"date": "2026-09-20T00:00:00Z"},
+                    },
+                }]
+            if "/pulls?state=all" in path:
+                return []
+            if path.endswith("/readme"):
+                import base64
+                return {"content": base64.b64encode(
+                    b"# ContextPack\nGeneric product overview and eight-section handoff format"
+                ).decode("ascii")}
+            if "/git/trees/" in path:
+                return {"tree": [{"path": "README.md"}, {"path": "deploy/cloudrun.yaml"}]}
+            raise AssertionError(path)
+
+        with patch.dict(os.environ, {"GITHUB_MCP_TOKEN": "test-token"}), \
+             patch.object(sources, "_github_api", side_effect=fake_api):
+            response = json.loads(sources.github_retrieve(
+                workspace_id,
+                "최근 배포 변경사항만 정리",
+                "Ai-pre/mabc2026-contextpack",
+            ))
+
+        self.assertEqual(response["readme_preview"], "")
+        kinds = [item["kind"] for item in response["evidence"]]
+        self.assertIn("commit", kinds)
+        self.assertNotIn("document", kinds)
 
     def test_live_slack_retrieve_ranks_registered_channel_messages(self):
         workspace_id = self.workspace()
