@@ -212,6 +212,16 @@ Handoff Context에서는 다음처럼 분리해 전달한다:
 - `[UNRESOLVED CONFLICTS]`에는 Claim A + Source + 날짜, Claim B + Source + 날짜, 그리고 무엇이 충돌하는지 남긴다.
 - 최종 출력 직전에 MUST KNOW/CONSTRAINTS와 UNRESOLVED CONFLICTS를 교차 점검한다. 같은 conflict dimension의 한쪽 값이 확정 사실로 중복되면 제거하거나 "검증 필요" 표현으로 바꾼다.
 
+### Finality Preflight
+
+최종 Handoff를 쓰기 직전에 decision topic별로 한 번만 점검한다.
+
+1. tentative/candidate 뒤에 그 안을 명시적으로 대체·확정·취소하는 final/authoritative claim이 있으면 **CONFLICT가 아니다**. final만 현재 상태로 사용한다.
+2. 한 Source의 final claim을 다른 Source가 언급하지 않는 것은 **Source silence**이며 CONFLICT가 아니다.
+3. 서로 양립할 수 없는 **final ↔ final** claim이 둘 이상일 때만 `[UNRESOLVED CONFLICTS]`에 남긴다.
+4. final 이후 실제 reopening evidence가 있을 때만 다시 VERIFY/CONFLICT를 검토한다. "나중에 바뀌었을 수도 있음"은 근거가 아니다.
+5. 위 규칙에 따라 resolved된 topic을 `[VERIFY BEFORE USE]`나 `[DO NOT ASSUME]`에서 다시 불확실하게 만들지 않는다.
+
 ### 최종 Handoff Context 형식 (고정)
 마지막에는 다음 Agent가 바로 사용할 수 있도록 **복사 가능한 압축 Context Bundle**을 작성한다.
 아래 섹션 순서를 기본 형식으로 사용한다.
