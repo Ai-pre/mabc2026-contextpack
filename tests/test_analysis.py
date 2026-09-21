@@ -332,6 +332,32 @@ class AnalysisTests(unittest.TestCase):
         from backend.handoff_policy import _is_crosscheck_only_verify
         self.assertTrue(_is_crosscheck_only_verify(text.casefold()))
 
+    def test_latest_live_output_removes_runtime_scope_known_state_missing_and_diff_stats(self):
+        raw = """[TASK]
+- 최근 MCP 및 배포 관련 결정사항을 정리한다.
+[MUST KNOW]
+- PR #2는 open/draft이고 merged_at=null이다.
+[CONSTRAINTS]
+- 등록된 Workspace sources만 근거로 사용: github repositories = ["owner/repo"], slack channels = ["C1"].
+- Slack connector는 read-only로 구현하고 등록된 workspace sources 범위로 scoping한다.
+[USEFUL IF SPACE ALLOWS]
+- PR #2는 evidence_schema.py, handoff_policy.py를 신규 추가하며 SKILL.md도 대폭 수정(105 추가 / 209 삭제).
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- PR #2가 이미 병합되었다고 가정하지 않는다(근거: open/draft).
+[SOURCE MAP]
+- github:repo:pr:2
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("PR #2는 open/draft이고 merged_at=null", cleaned)
+        self.assertNotIn("github repositories", cleaned)
+        self.assertIn("Slack connector는 read-only", cleaned)
+        self.assertIn("[USEFUL IF SPACE ALLOWS]\n- None", cleaned)
+        self.assertIn("[DO NOT ASSUME]\n- None", cleaned)
+
     def test_decision_summary_removes_conflict_absence_and_followup_rechecks(self):
         raw = """[TASK]
 - 최근 MCP 및 배포 관련 결정사항을 정리한다.
