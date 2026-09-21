@@ -330,6 +330,38 @@ class AnalysisTests(unittest.TestCase):
         from backend.handoff_policy import _is_crosscheck_only_verify
         self.assertTrue(_is_crosscheck_only_verify(text.casefold()))
 
+    def test_decision_summary_drops_noncritical_followup_missing_and_source_group_headers(self):
+        raw = """[TASK]
+- 최근 MCP 및 배포 관련 결정사항을 GitHub와 Slack 근거로 정리한다.
+[MUST KNOW]
+- PR2는 open draft다.
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- PR2의 향후 병합 시점, 실제 배포 실행 여부, slack_retrieve의 최종 구현 형태는 현재 evidence에 없으므로 추정하지 않는다.
+[SOURCE MAP]
+- GitHub: mcp__mabc_sources__workspace_retrieve(...)에서 retrieved evidence:
+- github:repo:pr:2
+- Slack: 동일 MCP 호출에서 retrieved evidence:
+- slack:C1:123
+- mcp__mabc_sources__workspace_retrieve(workspace_id=ws_x, source_types=github,slack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("[DO NOT ASSUME]\n- None", cleaned)
+        self.assertNotIn("retrieved evidence:", cleaned)
+        self.assertIn("github:repo:pr:2", cleaned)
+        self.assertIn("slack:C1:123", cleaned)
+
+    def test_skill_forbids_calling_commit_merged(self):
+        skill_text = (ROOT / "deploy/hermes/skills/context-pack/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("commit 자체를 \"merged\"라고 표현하지 않는다", skill_text)
+
     def test_handoff_sanitizer_dedupes_short_must_know_and_runtime_noise(self):
         raw = """[TASK]
 - 최근 MCP/배포 결정 정리
