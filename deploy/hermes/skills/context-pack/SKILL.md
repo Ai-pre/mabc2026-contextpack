@@ -101,6 +101,8 @@ MISSING은 Task-critical 정보가 Evidence에 실제로 없을 때만 사용한
 - 채널명만으로 추측 가능한 일반적 가능성
 
 Task-critical missing이 없으면 `[DO NOT ASSUME]`은 `- None`이다.
+이미 Evidence가 `open/draft/merged_at=null`처럼 현재 상태를 명시하면 그것은 **known fact**다.
+이를 "이미 병합됐다고 가정하지 말 것"처럼 DO NOT ASSUME에 다시 쓰지 않는다.
 
 결정사항을 "정리/요약"하는 Task에서는 향후 merge 시점, 실제 실행 완료 여부, 최종 구현 형태처럼
 **현재 결정 자체를 이해하는 데 필요하지 않은 후속 상태**를 새 MISSING으로 만들지 않는다.
