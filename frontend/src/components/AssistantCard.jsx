@@ -25,17 +25,27 @@ function AssistantCard({ message, onRetry }) {
   const aggregateMs = typeof retrievalTiming.aggregate === 'number'
     ? retrievalTiming.aggregate
     : null
+  const beforeRetrievalMs = typeof retrievalTiming.before_retrieval === 'number'
+    ? retrievalTiming.before_retrieval
+    : null
+  const afterRetrievalMs = typeof retrievalTiming.after_retrieval === 'number'
+    ? retrievalTiming.after_retrieval
+    : null
   const residualSec = aggregateMs != null && typeof elapsedSec === 'number'
     ? Math.max(0, elapsedSec - aggregateMs / 1000)
     : null
+  const hasStageSplit = beforeRetrievalMs != null && afterRetrievalMs != null
   const timingParts = aggregateMs == null
     ? []
     : [
+        hasStageSplit ? `before retrieval ${(beforeRetrievalMs / 1000).toFixed(1)}s` : null,
         `retrieval ${(aggregateMs / 1000).toFixed(1)}s`,
         ...['github', 'slack', 'notion', 'document']
           .filter((key) => typeof retrievalTiming[key] === 'number')
           .map((key) => `${key} ${(retrievalTiming[key] / 1000).toFixed(1)}s`),
-        residualSec == null ? null : `agent + generation ${residualSec.toFixed(1)}s`,
+        hasStageSplit
+          ? `after retrieval ${(afterRetrievalMs / 1000).toFixed(1)}s`
+          : (residualSec == null ? null : `agent + generation ${residualSec.toFixed(1)}s`),
       ].filter(Boolean)
 
   return (
@@ -104,7 +114,7 @@ function AssistantCard({ message, onRetry }) {
               </div>
             )}
             {timingParts.length > 0 && (
-              <div className="result-tools" title="Retrieval timing is measured inside workspace_retrieve; remaining time includes Hermes and model generation.">
+              <div className="result-tools" title="Before retrieval includes Hermes startup/tool planning; retrieval is connector time; after retrieval includes post-tool model generation and Hermes finalization.">
                 <span className="result-tools-label">Timing</span>
                 <span>{timingParts.join(' · ')}</span>
               </div>
