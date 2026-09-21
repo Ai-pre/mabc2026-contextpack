@@ -186,6 +186,9 @@ class AnalysisTests(unittest.TestCase):
         self.assertNotRegex(skill_text, r"(?m)^## 1\. Task\s*$")
         self.assertNotRegex(skill_text, r"(?m)^\[SCRIPT_MAP\]\s*$")
         self.assertNotRegex(skill_text, r"(?m)^\[호출 MCP tool\]\s*$")
+        self.assertLess(len(skill_text), 6500)
+        self.assertIn("Source silence is not conflict", skill_text)
+        self.assertIn("final ↔ final", skill_text)
 
     def test_runtime_prompt_hard_stops_with_one_aggregate_call_in_multi_source_workspace(self):
         workspace_id = self.store.create_workspace("GitHub + Slack")["workspace_id"]
