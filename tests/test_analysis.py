@@ -189,6 +189,8 @@ class AnalysisTests(unittest.TestCase):
         self.assertLess(len(skill_text), 6500)
         self.assertIn("Source silence is not conflict", skill_text)
         self.assertIn("final ↔ final", skill_text)
+        self.assertIn("MUST KNOW 최대 6개", skill_text)
+        self.assertIn("SOURCE MAP은 실제 사용한 핵심 Evidence", skill_text)
 
     def test_runtime_prompt_hard_stops_with_one_aggregate_call_in_multi_source_workspace(self):
         workspace_id = self.store.create_workspace("GitHub + Slack")["workspace_id"]
@@ -329,6 +331,38 @@ class AnalysisTests(unittest.TestCase):
         )
         from backend.handoff_policy import _is_crosscheck_only_verify
         self.assertTrue(_is_crosscheck_only_verify(text.casefold()))
+
+    def test_latest_live_output_noise_is_removed(self):
+        raw = """[TASK]
+- 최근 MCP 및 배포 관련 결정사항을 정리한다.
+[MUST KNOW]
+- 다음 배포는 토요일로 최종 결정됐다.
+- None. Slack의 배포 일정은 self-correction으로 정리됐고 final-final 충돌은 없다.
+[CONSTRAINTS]
+- 등록된 Workspace의 GitHub 저장소는 owner/repo, Slack 채널은 C1 하나뿐이다.
+- 이 retrieval에서 얻은 evidence만 근거로 사용하고 다른 저장소나 외부 웹 검색으로 보충하지 않는다.
+- 같은 결정 주제에서 서로 양립 불가능한 final claim이 둘 이상 있을 때만 UNRESOLVED CONFLICTS로 남긴다. Source silence는 conflict가 아니다.
+[USEFUL IF SPACE ALLOWS]
+- PR1은 merged, PR2는 open/draft라 live GitHub MCP는 반영된 쪽으로 볼 여지가 있으나 실제 배포 반영 여부는 확정하지 않는다.
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- PR2 open/draft 상태는 retrieval 시점 기준이다. 현재 merge 여부를 다시 확인해야 한다면 별도 조회 대상이다.
+[DO NOT ASSUME]
+- Slack connector의 read-only 구현 범위, SLACK_BOT_TOKEN 외 필요한 추가 환경변수 존재 여부.
+- GitHub PR/커밋과 Slack 결정 사이의 인과관계나 선후관계가 이 retrieval만으로 cross-confirm되는지 여부.
+[SOURCE MAP]
+- GitHub PR1(mermaid: feat: add live GitHub MCP connector, merged): github:repo:pr:1
+- mcp__mabc_sources__workspace_retrieve(workspace_id=ws_x, source_types=github,slack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("다음 배포는 토요일로 최종 결정됐다", cleaned)
+        self.assertNotIn("None. Slack", cleaned)
+        self.assertIn("[CONSTRAINTS]\n- None", cleaned)
+        self.assertIn("[USEFUL IF SPACE ALLOWS]\n- None", cleaned)
+        self.assertIn("[VERIFY BEFORE USE]\n- None", cleaned)
+        self.assertIn("[DO NOT ASSUME]\n- None", cleaned)
+        self.assertNotIn("mermaid:", cleaned)
 
     def test_decision_summary_drops_noncritical_followup_missing_and_source_group_headers(self):
         raw = """[TASK]
