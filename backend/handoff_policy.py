@@ -330,6 +330,7 @@ def _is_hypothetical_reopening_gap(text: str) -> bool:
     """
     reopening_terms = (
         "재논의", "재검토", "재조정", "번복", "결정 변경", "취소",
+        "다시 바뀌", "이후 바뀌", "나중에 바뀌",
         "reopen", "reconsider", "reversal", "rolled back", "changed later",
     )
     hypothetical_terms = (
@@ -398,7 +399,8 @@ def _is_decision_summary_task(task_body: str) -> bool:
 def _is_noncritical_followup_gap(text: str) -> bool:
     patterns = (
         r"향후.*(?:병합|merge).*(?:시점|날짜)",
-        r"(?:실제 )?(?:배포|적용).*(?:실행|완료|시점|여부)",
+        r"(?:pr\s*#?\d+|pr\d+).*(?:병합|merge).*(?:여부|시점|날짜)",
+        r"(?:실제 )?(?:병합|merge|배포|적용).*(?:실행|완료|시점|여부)",
         r"(?:최종 )?구현 (?:형태|방식)",
         r"future.*merge.*(?:time|date)",
         r"(?:deployment|rollout).*(?:execution|completion|status)",
@@ -413,6 +415,8 @@ def _is_policy_echo(text: str) -> bool:
         r"서로\s*양립\s*불가능한.*final.*(?:둘|2).*(?:conflict|unresolved)",
         r"source silence.*conflict.*아니",
         r"(?:conflict|충돌).*(?:source silence|final↔final|final.*final)",
+        r"(?:final|확정).*(?:충돌|claim).*(?:확인되지|없음|없다).*(?:retrieval|범위)?",
+        r"(?:retrieval|범위).*(?:final|확정).*(?:충돌|claim).*(?:확인되지|없음|없다)",
     )
     return any(re.search(pattern, text) for pattern in patterns)
 
@@ -572,6 +576,7 @@ def sanitize_handoff(handoff: str) -> str:
                     or _is_hypothetical_reopening_gap(text)
                     or _is_crosscheck_only_verify(text)
                     or _is_recheck_disclaimer(text)
+                    or (decision_summary_task and _is_noncritical_followup_gap(text))
                 ):
                     continue
 
