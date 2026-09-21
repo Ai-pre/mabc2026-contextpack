@@ -1524,17 +1524,23 @@ def workspace_retrieve(
                 "duration_ms": duration_ms,
             })
 
+    aggregate_finished = time.perf_counter()
     timing_ms = {
-        "aggregate": round((time.perf_counter() - aggregate_started) * 1000, 2),
+        "aggregate": round((aggregate_finished - aggregate_started) * 1000, 2),
         **source_timings,
     }
 
     run_id = os.environ.get("CONTEXTPACK_RUN_ID", "").strip()
     if re.fullmatch(r"[A-Za-z0-9_-]{8,80}", run_id):
         timing_path = pathlib.Path("/tmp") / f"contextpack-retrieval-{run_id}.json"
+        timing_sidecar = {
+            **timing_ms,
+            "_retrieval_started_perf": aggregate_started,
+            "_retrieval_finished_perf": aggregate_finished,
+        }
         try:
             timing_path.write_text(
-                json.dumps(timing_ms, ensure_ascii=False, separators=(",", ":")),
+                json.dumps(timing_sidecar, ensure_ascii=False, separators=(",", ":")),
                 encoding="utf-8",
             )
         except OSError:
