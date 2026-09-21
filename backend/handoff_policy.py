@@ -119,7 +119,7 @@ def _looks_like_analysis_scope_metadata(text: str) -> bool:
         r"(?:live\s+)?(?:github\s+repository|slack\s+channel|notion\s+page).*(?:현재\s*)?(?:연결되어\s*있지|연결되지|미연결)",
         r"(?:현재\s*)?(?:연결|등록)되어\s*있지\s*않.*(?:retrieve|사용하지)",
         r"^-\s*등록(?:된)?\s*workspace\s*source만\s*근거로\s*사용",
-        r"등록(?:된)?\s*(?:workspace|작업공간)\s*source만.*근거",
+        r"등록(?:된)?\s*(?:workspace|작업공간)\s*sources?만.*근거",
         r"등록(?:된)?\s*workspace의.*(?:저장소|repository|채널|channel).*(?:하나뿐|범위)",
         r"(?:이|이번)\s*retrieval에서\s*얻은\s*evidence만\s*근거",
         r"다른\s*(?:저장소|repository|slack\s*채널|channel|외부\s*웹).*(?:보충하지|사용하지)",
@@ -360,6 +360,7 @@ def _is_low_value_retrieved_item(text: str) -> bool:
         r"join events?",
         r"member join events?",
         r"joined (?:the )?channel",
+        r"\b\d+\s*(?:추가|additions?)\s*/\s*\d+\s*(?:삭제|deletions?)\b",
     )
     return any(re.search(pattern, text) for pattern in patterns)
 
@@ -400,6 +401,7 @@ def _is_noncritical_followup_gap(text: str) -> bool:
     patterns = (
         r"향후.*(?:병합|merge).*(?:시점|날짜)",
         r"(?:pr\s*#?\d+|pr\d+).*(?:병합|merge).*(?:여부|시점|날짜)",
+        r"(?:pr\s*#?\d+|pr\d+).*(?:이미\s*)?(?:병합|merge).*(?:가정하지|추정하지|단정하지)",
         r"(?:실제 )?(?:병합|merge|배포|적용).*(?:실행|완료|시점|여부)",
         r"(?:최종 )?구현 (?:형태|방식)",
         r"future.*merge.*(?:time|date)",
