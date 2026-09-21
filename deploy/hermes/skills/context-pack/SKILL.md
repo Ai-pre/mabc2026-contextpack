@@ -1,97 +1,27 @@
 ---
 name: context-pack
 description: >
-  사용자의 업무 목표 + 여러 자료(파일·문서·회의록·메모·커넥터 자료 등)를 받아,
-  그 업무를 수행할 다음 에이전트가 바로 쓸 수 있는 최소·충분한 Context Pack을 만든다.
-  "이 자료들 기반으로 제안서 작성할 건데 필요한 컨텍스트만 정리해줘",
-  "다음 에이전트한테 넘길 context bundle 만들어줘", "지난 프로젝트 자료에서 이번 미팅에 필요한 정보만 뽑아줘"
-  같은 요청에서 발동한다. 단순 문서 요약·번역·짧은 단일 질의에는 쓰지 않는다.
+  사용자의 업무 목표와 등록된 자료를 바탕으로 다음 에이전트가 바로 사용할
+  최소·충분한 Handoff Context를 만든다. 여러 Source의 근거를 비교해
+  conflict/stale/missing을 구분해야 하는 업무에서 사용한다.
 ---
 
-# ContextPack — 다음 에이전트가 바로 쓸 수 있는 Right Context를 만드는 스킬
+# ContextPack
 
-이 스킬이 활성화되면 **"Context Curator"** 역할을 맡는다.
-검색 결과를 그대로 던지는 게 아니라, **"이 업무를 수행하려면 다음 에이전트에게 실제로 어떤 정보를 넘겨야 하는가?"**를
-판단해 Task에 맞는 Context Pack을 구성한다. 핵심 원칙은 **More Context가 아니라 Right Context** 이다.
+목표는 자료를 많이 요약하는 것이 아니라 **현재 Task 수행에 필요한 Right Context만 넘기는 것**이다.
+검색 결과를 그대로 복사하지 말고, 다음 Agent의 판단이나 구현을 실제로 바꾸는 정보만 남긴다.
 
-핵심 목표는 "많이 요약하는 스킬"이 아니라, **"다음 Agent에게 넘길 최소·충분한 context를 선택하는 스킬"**을 만드는 것이다.
-즉 ContextPack은 문서를 요약하는 게 아니라, **특정 Task를 수행하는 데 실제로 필요한 정보만 선별·재구성**한다.
+## Internal workflow
 
-## 동작 (단계)
+1. Task에서 필요한 사실·결정·제약을 내부적으로 정리한다.
+2. 등록 Source의 retrieve 결과에서 관련 Evidence만 고른다.
+3. 같은 사실은 dedupe하고 provenance/date/certainty를 보존한다.
+4. 아래 Handoff Policy로 classification한다.
+5. Finality Preflight 후 고정 8-section Handoff만 출력한다.
 
-### Step 1. Task Decomposition (Context Requirement Map)
-사용자의 요청만 보고 검색어를 만들지 않는다. 먼저 내부적으로 다음을 판단한다:
-- 최종 산출물이 무엇인지
-- 어떤 결정을 내려야 하는지
-- 반드시 알아야 하는 사실은 무엇인지
-- 어떤 종류의 근거가 필요한지
-- 있으면 좋지만 필수는 아닌 정보는 무엇인지
+## Evidence contract
 
-→ 그 결과로 **Context Requirement Map**을 만든다. 각 Requirement는 이후 Retrieval의 단위가 된다.
-
-각 Requirement에 대해 최종적으로는 다음 coverage 상태를 기록한다:
-- **FOUND**: 해당 requirement를 충족하는 근거가 자료에서 확인됨
-- **PARTIAL**: 일부 맥락은 있지만 requirement를 완전히 충족하지는 못함
-- **MISSING**: 해당 requirement에 필요한 정보가 현재 자료에서 확인되지 않음
-
-이렇게 해두면 다음 Agent가 "ContextPack에 없으니까 중요하지 않은 정보"와 "필요하지만 찾지 못한 정보"를 구분할 수 있다.
-
-### Step 2. Evidence Retrieval (Requirement → Relevant Evidence)
-Step 1에서 만든 Requirement별로 제공된 자료에서 근거를 찾는다.
-문서 전체를 그대로 넘기지 않는다. 단순 키워드뿐 아니라 의미적으로 관련된 정보까지 확인하고,
-가능한 경우 각 정보에 출처를 남긴다(예: `파일명 / 섹션·위치`).
-
-### Step 2.5. Inclusion Gate
-ContextPack에 정보를 포함하기 전에 반드시 내부적으로 다음 질문을 통과해야 한다.
-
-> **"이 정보가 없으면 다음 Agent의 판단이나 산출물 품질이 실제로 떨어지는가?"**
-
-아니면 기본적으로 제외한다. 검색되었다는 이유만으로 포함하지 않는다.
-
-각 포함 항목에는 반드시 다음을 기록한다:
-- **Why Needed**: 그 정보가 왜 필요한지
-- **Source**: 원본 출처
-
-`Why Needed`를 설명할 수 없는 정보는 Handoff Context에 넣지 않는다.
-
-### Step 3. Canonical Context Item 정리
-최종 ContextPack을 만들기 전에 찾은 정보를 다음 구조의 **Context Item**으로 정리한다.
-
-- `context_id`
-- `requirement` (어떤 requirement에서 나온 정보인지)
-- `content` (압축된 정보 내용)
-- `classification` (MUST_INCLUDE / USEFUL / CONFLICT / STALE / MISSING)
-- `why_needed` (Inclusion Gate에서 확인한 이유)
-- `source` (원본 출처, 여러 개일 수 있음)
-- `date_or_version` (확인되면 기록, 없으면 생략)
-- `status` (FOUND / PARTIAL / MISSING — Step 1의 requirement 커버리지와 연결)
-
-같은 사실이 여러 문서에 존재하면 중복 Context Item을 만들지 말고 하나의 canonical item으로 병합하고
-source만 여러 개 연결한다.
-
-classification은 다음을 사용한다:
-- **MUST_INCLUDE**: 다음 작업 수행에 반드시 필요한 정보(고객 요구사항, 핵심 숫자, 제약사항, 결정된 정책 등).
-- **USEFUL**: 결과 품질을 높일 수 있지만 필수는 아닌 정보(과거 사례, 참고 표현, 부가 맥락).
-- **CONFLICT**: 서로 다른 자료가 같은 사실에 대해 다른 내용을 말하는 경우. 하나를 임의로 택하지 말고
-  Claim A + Source, Claim B + Source, 어떤 점이 충돌하는지까지 표시한다.
-- **STALE**: 현재 업무에 사용하기에는 오래되었을 가능성이 있는 정보. 날짜·버전이 보이면 함께 기록하고,
-  최신 여부를 임의로 추정하지 않는다.
-- **MISSING**: 업무 수행에 필요한데 현재 자료에서 찾을 수 없는 정보. 다음 에이전트가 사실처럼 추정하지 않도록 명확히 표시한다.
-
-### Step 4. Deduplication
-여러 문서가 같은 사실을 반복하면 하나의 canonical fact로 합친다.
-여러 출처를 함께 연결하고, 표현은 비슷하지만 조건·숫자가 다르면 임의로 합치지 말고 CONFLICT 가능성을 확인한다.
-
-### Step 5. Compression
-선택된 정보를 다음 에이전트가 원문을 다시 읽지 않아도 될 정도로 압축한다.
-이때 핵심 숫자·조건·부정 표현·예외사항·날짜/버전·원문의 확실성 수준은 반드시 유지한다.
-"가능성이 있다/검토 중이다/예정이다"를 "결정됐다"로 바꾸지 않는다(No information laundering).
-
-### Common Evidence Contract
-
-ContextPack의 Handoff 품질 규칙은 connector별로 정의하지 않는다.
-
-GitHub / Slack / Notion / uploaded document / Jira 등 retriever는 가능한 경우 다음 공통 evidence shape으로 결과를 제공한다.
+가능하면 다음 공통 shape를 우선 사용한다.
 
 ```text
 evidence_id
@@ -104,161 +34,120 @@ author
 metadata
 ```
 
-- `source_type`은 provenance 구분용이다.
-- semantic classification(MUST_INCLUDE / USEFUL / CONFLICT / STALE / MISSING)은 provider 이름이 아니라 evidence의 content, timestamp, certainty signal, provenance 관계를 기준으로 한다.
-- connector마다 별도의 "Slack용 conflict 규칙", "GitHub용 stale 규칙"을 만들지 않는다.
-- provider-specific 필드는 retrieval/debugging에는 사용할 수 있지만, 공통 evidence가 있으면 Context Item 생성의 기준 입력은 evidence다.
-- 새로운 connector를 추가해도 Handoff Policy는 그대로 재사용한다.
+판단 기준은 provider 이름이 아니라 `content + timestamp + certainty + provenance`다.
+provider envelope보다 공통 `evidence[]`가 있으면 그것을 우선한다.
 
-### Step 6. Least Context Principle
-ContextPack은 **최소 권한 원칙의 context 버전**처럼 동작한다.
+## Inclusion policy
 
-다음 Agent가 업무 수행에 필요하지 않은 다음을 단순히 "관련 있어 보인다"는 이유로 넘기지 않는다:
-- 개인정보
-- 민감 데이터
-- 내부 정보
-- 긴 원문
-- 불필요한 세부사항
-- ContextPack 내부 실행 메타데이터(workspace_id, connector 연결 여부, source allowlist, MCP tool 선택/호출 규칙)
-- "조회 범위 밖에 더 많은 정보가 있을 수 있음"처럼 모든 retrieval에 붙일 수 있는 일반적인 면책 문구
+포함 전 질문:
 
-민감한 정보가 업무에 필요한 경우에도 가능한 최소 범위만 전달한다.
+> 이 정보가 없으면 다음 Agent의 판단이나 산출물 품질이 실제로 떨어지는가?
 
-핵심 원칙:
+아니면 제외한다. 특히 다음은 semantic Handoff에 넣지 않는다.
 
-> **Give the next agent the minimum context necessary to do the task correctly.**
+- workspace_id, connector 연결 여부, source allowlist, MCP tool 선택/호출 규칙
+- 현재 retrieval이 보지 않은 다른 채널/문서가 있을 수 있다는 면책 문구
+- 교차 확인하지 않았다는 execution coverage 설명
+- task와 무관한 join/leave 이벤트, 긴 파일 목록, 저가치 디버그 정보
+- retrieval timing, evidence count, cache 상태 같은 실행 진단 정보
 
-### Step 7. Prioritization
-다음 에이전트가 읽을 순서를 정한다. 기본 우선순위:
-1. Task-critical constraints
-2. User / Client requirements
-3. 최신 결정사항
-4. 핵심 사실·숫자
-5. 과거 성과·사례
-6. 보조 참고정보
+Source 자체가 말하는 제품 기능, PR 상태, 배포 결정, 코드 구조는 Project Evidence다.
 
-단순히 문서 순서대로 출력하지 않는다.
+## Handoff Policy
 
-### Step 8. Context Budget (지정된 경우만)
-사용자가 context budget(최대 길이/토큰 예산)을 지정한 경우 그 범위 안에서 Context Pack을 구성한다.
-예산이 부족하면 **반드시 이 순서**로 축소한다:
+- **MUST KNOW**: 다음 작업의 판단/구현을 바꾸는 현재 사실·최근 결정·필수 제약
+- **CONSTRAINTS**: 실제 업무 수행 중 지켜야 할 프로젝트/정책/기술 제약
+- **USEFUL**: 도움이 되지만 없어도 다음 작업을 수행할 수 있는 배경
+- **CONFLICT**: 같은 decision dimension의 서로 양립 불가능한 확정 claim
+- **STALE / VERIFY**: 실제 근거로 오래됐거나 현재 유효성 검증이 필요한 정보
+- **MISSING / DO NOT ASSUME**: Task에 실제로 필요한데 Evidence에 없는 구체적 사실
 
-1. 중복 제거
-2. USEFUL 축소
-3. 예시 제거
-4. 표현 압축
+### Conflict / finality invariant
 
-마지막까지 유지하는 항목:
-- MUST_INCLUDE
-- Constraints
-- Conflict
-- Missing Context
+**Source silence is not conflict.** 한 Source의 explicit claim을 다른 Source가 말하지 않는 것만으로
+CONFLICT나 VERIFY를 만들지 않는다.
 
-budget 안에 들어가지 않는 경우 핵심 정보를 조용히 삭제하지 말고 `BUDGET_INSUFFICIENT`를 표시한다.
+확정성 수준을 먼저 비교한다.
 
-v1에서는 사용자가 명시적으로 토큰 단위 제한을 요구하지 않았다면 불필요한 tokenizer helper script를 만들지 않는다.
+- tentative: 논의 중 / 검토 중 / 제안 / 초안 / 예정 / 후보 / 고려 중
+- final: 최종 결정 / 최종 확정 / 확정 / 승인 / 적용 결정 / 취소
 
-### Analysis Workspace Metadata Isolation
+같은 decision topic에서 tentative 뒤에 그 안을 명시적으로 대체·정정·확정·취소하는 final이 있으면
+CONFLICT가 아니다. 뒤의 final을 현재 상태로 사용한다.
 
-현재 분석 실행의 Source 연결 상태는 Project Context가 아니다.
+특히 같은 메시지·같은 저자의
+`금요일로 논의 중 → 아니다, 토요일로 최종 결정`
+같은 self-correction은 **토요일 final 하나**로 처리한다.
 
-- "이 workspace는 GitHub-only다"
-- "Slack/Notion connector가 연결되어 있지 않다"
-- "현재 workspace에서 slack_retrieve를 사용할 수 없다"
-- "등록 Source가 없어서 이 connector를 조회하지 않았다"
-- "GitHub 근거는 연결된 repository만 사용한다"
-- "다른 repository/channel/page를 근거로 쓰지 않는다"
+`[UNRESOLVED CONFLICTS]`에는 서로 양립할 수 없는 **final ↔ final**이 둘 이상 있을 때만 남긴다.
+날짜가 더 늦다는 이유만으로 한쪽을 고르지 않는다.
 
-위와 같은 내용은 retrieval/runtime metadata이므로 `[MUST KNOW]`, `[CONSTRAINTS]`, `[USEFUL IF SPACE ALLOWS]`, `[VERIFY BEFORE USE]`, `[DO NOT ASSUME]`에 넣지 않는다. 필요한 경우 실행 trace와 `[SOURCE MAP]`에서만 추적한다.
+final 이후 실제 `재논의 / 재검토 / 보류 / 번복` Evidence가 있을 때만 다시 VERIFY/CONFLICT를 검토한다.
+"나중에 바뀌었을 수도 있음", "번복됐는지 확인하지 않음", "reopening evidence 없음"은 reopening Evidence가 아니다.
 
-반대로 source 자체가 제공하는 프로젝트 사실(예: PR이 open draft인지, commit이 merged됐는지, 실제 배포 설정이 무엇인지)은 일반 Evidence로 처리한다. 한 항목에 analysis workspace metadata와 프로젝트 uncertainty가 섞이면 execution metadata를 제거하고 source가 직접 뒷받침하는 프로젝트 사실만 남긴다.
+resolved된 tentative→final topic을 VERIFY/DO NOT ASSUME에서 다시 불확실하게 만들지 않는다.
 
-### Handoff Safety 규칙
-`CONFLICT`, `STALE`, `MISSING` 정보를 다음 Agent에게 **확정 사실처럼 전달하면 안 된다.**
+### Stale / missing invariant
 
-Handoff Context에서는 다음처럼 분리해 전달한다:
-- 확정 정보 → `[MUST KNOW]`, `[CONSTRAINTS]`
-- 충돌 정보 → `[UNRESOLVED CONFLICTS]`
-- 오래된 정보 → `[VERIFY BEFORE USE]`
-- 없는 정보 → `[DO NOT ASSUME]`
+STALE은 날짜·버전·후속 근거 등 실제 freshness signal이 있을 때만 사용한다.
+단순히 "최신인지 다시 확인하면 안전하다"는 이유로 VERIFY를 만들지 않는다.
 
-특히 서로 충돌하는 두 정보를 임의로 최신 정보라고 선택해 하나로 만들지 않는다.
+MISSING은 Task-critical 정보가 Evidence에 실제로 없을 때만 사용한다.
+다음은 MISSING이 아니다.
 
-#### Conflict Isolation Invariant
-동일한 사실/정책/숫자에 대해 서로 양립할 수 없는 **확정 표현**이 둘 이상 존재하면, 그 사실 전체를 `CONFLICT`로 격리한다.
+- 다른 Source에 더 많은 논의가 있을 가능성
+- 이번 retrieval에서 교차 확인하지 않은 사실
+- 이미 final로 대체된 tentative 안
+- 채널명만으로 추측 가능한 일반적 가능성
 
-**Source silence is not conflict.** 한 Source에 명시적 claim이 있고 다른 Source가 그 topic을 언급하지 않거나 검색 결과에 없다는 사실은 상충 claim이 아니다. "다른 Source에서 확인되지 않음", "교차 검증 실패", "corroboration 없음"만으로 `UNRESOLVED CONFLICTS`를 만들지 않는다. 한 Source의 explicit final claim에 반대되는 final claim이 없다면 provenance를 붙여 현재 상태로 사용할 수 있다.
-
-**확정성 수준을 먼저 비교한다.** 아래처럼 확정성 수준이 다른 두 문장은 원칙적으로 CONFLICT가 아니다.
-
-- tentative / candidate: "논의 중", "검토 중", "제안", "초안", "예정", "후보", "고려 중"
-- final / authoritative: "최종 결정", "확정", "승인", "적용 결정", "취소", "정책 결정"
-
-동일한 decision topic에서 tentative claim과 final claim이 함께 있고, final claim이 tentative 안을 명시적으로 확정·대체·취소하는 관계라면:
-- final claim을 현재 상태로 `MUST_INCLUDE`에 둔다.
-- tentative claim은 필요할 때만 과거 논의/배경으로 `USEFUL`에 남기거나 제외한다.
-- 둘을 `UNRESOLVED CONFLICTS`로 올리지 않는다.
-- **Finality 보존 규칙:** final/authoritative claim 이후에 명시적인 reopening, 상충하는 확정 근거, 또는 stale 근거가 없다면 해당 결정을 `VERIFY BEFORE USE`에 중복시키지 않는다. "실제 상황은 바뀔 수 있음", "추가 확인이 안전함" 같은 일반적 가능성은 VERIFY 근거가 아니다.
-- tentative → final 대체 관계가 명확하고 reopening 근거가 없다면 그 decision topic은 `VERIFY BEFORE USE`에서 언급하지 않는다. 다른 검증 필요 사실이 없다면 해당 섹션은 정확히 `- None`이다.
-- final claim에 딸린 세부사항(정확한 시각, 담당자, 대상 환경 등)이 source에 없다면 final claim 자체를 약화시키지 않는다. 확인되지 않은 세부사항만 `DO NOT ASSUME`으로 분리한다.
-- final에 의해 명시적으로 대체된 tentative/candidate claim은 MISSING이 아니다. "이전 안이 별도 확정으로 남아 있을 수도 있음" 같은 가상의 가능성을 `DO NOT ASSUME`에 만들지 않는다.
-- superseded tentative는 현재 Task의 배경으로 꼭 필요할 때만 `USEFUL`에 한 줄로 남기고, 아니면 제외한다.
-- 단, final 이후 다시 "재논의/재검토/결정 보류/결정 번복" 같은 **명시적 reopening evidence**가 있으면 현재 상태가 다시 불확실할 수 있으므로 VERIFY 또는 CONFLICT 여부를 재평가한다.
-- reopening evidence가 없는데 "추가 재조정/번복이 있었는지 여부", "나중에 변경됐을 수도 있음" 같은 가상 가능성을 새로 만들지 않는다. 이런 항목은 `VERIFY BEFORE USE`나 `DO NOT ASSUME`에 넣지 않는다.
-
-- 한쪽 claim을 `[MUST KNOW]`, `[CONSTRAINTS]`, `[USEFUL IF SPACE ALLOWS]`에서 확정 사실처럼 다시 쓰지 않는다.
-- 다른 섹션에서 이 주제를 언급해야 한다면 오직 "서로 충돌하는 확정 정보가 있으므로 검증 전 확정하지 말 것"처럼 **충돌 존재 자체**만 전달한다.
-- 날짜가 더 늦다는 이유만으로 자동으로 한쪽을 채택하지 않는다. 제공된 자료 안에 명시적인 권위/버전/승인 우선순위 근거가 있어야만 충돌을 해소할 수 있다.
-- `[UNRESOLVED CONFLICTS]`에는 Claim A + Source + 날짜, Claim B + Source + 날짜, 그리고 무엇이 충돌하는지 남긴다.
-- 최종 출력 직전에 MUST KNOW/CONSTRAINTS와 UNRESOLVED CONFLICTS를 교차 점검한다. 같은 conflict dimension의 한쪽 값이 확정 사실로 중복되면 제거하거나 "검증 필요" 표현으로 바꾼다.
+Task-critical missing이 없으면 `[DO NOT ASSUME]`은 `- None`이다.
 
 ### Finality Preflight
 
-최종 Handoff를 쓰기 직전에 decision topic별로 한 번만 점검한다.
+최종 출력 직전에 decision topic별로 확인한다.
 
-1. tentative/candidate 뒤에 그 안을 명시적으로 대체·확정·취소하는 final/authoritative claim이 있으면 **CONFLICT가 아니다**. final만 현재 상태로 사용한다.
-   - 특히 같은 메시지/같은 저자의 self-correction에서 "논의 중/검토 중" 뒤에 "아니다/정정/최종 결정/최종 확정"이 이어지면 뒤의 explicit final이 앞의 tentative를 대체한다. 두 문장을 둘 다 "확정 표현"으로 재분류하지 않는다.
-2. 한 Source의 final claim을 다른 Source가 언급하지 않는 것은 **Source silence**이며 CONFLICT가 아니다.
-3. 서로 양립할 수 없는 **final ↔ final** claim이 둘 이상일 때만 `[UNRESOLVED CONFLICTS]`에 남긴다.
-4. final 이후 실제 reopening evidence가 있을 때만 다시 VERIFY/CONFLICT를 검토한다. "나중에 바뀌었을 수도 있음"은 근거가 아니다. "reopening/재논의/번복 증거는 없다"라는 문장은 reopening evidence가 아니라 그 반대이므로 finality를 유지한다.
-5. 위 규칙에 따라 resolved된 topic을 `[VERIFY BEFORE USE]`나 `[DO NOT ASSUME]`에서 다시 불확실하게 만들지 않는다.
+1. tentative→explicit final 대체인가? 그러면 final만 남긴다.
+2. Source silence인가? 그러면 conflict가 아니다.
+3. final↔final이 실제로 둘 이상인가? 그때만 UNRESOLVED CONFLICTS다.
+4. 실제 reopening Evidence가 있는가? 없으면 finality를 유지한다.
+5. resolved topic이 VERIFY/DO NOT ASSUME에 다시 들어갔는지 제거한다.
+6. 의미 없는 짧은 중복 bullet과 task-irrelevant evidence를 제거한다.
 
 ### 최종 Handoff Context 형식 (고정)
-마지막에는 다음 Agent가 바로 사용할 수 있도록 **복사 가능한 압축 Context Bundle**을 작성한다.
-아래 섹션 순서를 기본 형식으로 사용한다.
+
+아래 8개 header를 정확한 철자와 순서로 모두 사용한다.
 
 ```text
 [TASK]
-<업무를 한두 문장으로>
+- <다음 Agent가 수행할 업무>
 
 [MUST KNOW]
-- <핵심 사실 1>
-- <핵심 사실 2>
+- <핵심 사실/결정>
 
 [CONSTRAINTS]
-- <제약 1>
-- <제약 2>
+- <실제 업무 제약>
 
 [USEFUL IF SPACE ALLOWS]
-- <도움이 되지만 필수는 아닌 정보>
+- <선택적 배경>
 
 [UNRESOLVED CONFLICTS]
-- <충돌 정보 A + source / 충돌 정보 B + source / 충돌 설명>
+- <서로 양립 불가능한 final claim A/B + source>
 
 [VERIFY BEFORE USE]
-- <오래되었거나 최신 여부가 불분명한 정보 + 날짜/버전>
+- <실제 stale/verification 필요 정보>
 
 [DO NOT ASSUME]
-- <추정하지 말아야 할 것 / MISSING 항목>
+- <Task-critical missing 정보>
 
 [SOURCE MAP]
-- <context_id 또는 핵심 사실 → 원본 출처>
+- <핵심 사실 → evidence_id/source_ref 또는 실제 MCP callable>
 ```
 
-Handoff Context만 복사해서 다른 Agent에게 전달해도 업무가 가능하도록 작성한다.
-
-출력 시 위 8개 header를 **정확한 철자와 순서로 모두 사용**한다.
-다른 heading이나 numbered report를 추가하지 않는다.
-특히 `# ContextPack`, `## 1. Task`, `[SCRIPT_MAP]`, `[호출 MCP tool]` 같은 대체 형식은 출력하지 않는다.
-내용이 없는 section은 정확히 `- None`으로 둔다.
-마지막 `[SOURCE MAP]` 항목이 끝나면 즉시 응답을 종료한다.
+규칙:
+- 내용이 없으면 정확히 `- None`.
+- 같은 사실을 여러 section에 반복하지 않는다.
+- provenance만 따로 `- 근거:` bullet로 만들지 않는다.
+- SOURCE MAP에는 task에 실제 사용한 Evidence만 남긴다.
+- `# ContextPack`, numbered report, `[SCRIPT_MAP]`, `[호출 MCP tool]` 같은 대체 형식을 추가하지 않는다.
+- 파일 생성/수정 설명, patch/diff, 후기 문장을 붙이지 않는다.
+- 마지막 `[SOURCE MAP]` 항목에서 즉시 끝낸다.
