@@ -332,6 +332,33 @@ class AnalysisTests(unittest.TestCase):
         from backend.handoff_policy import _is_crosscheck_only_verify
         self.assertTrue(_is_crosscheck_only_verify(text.casefold()))
 
+    def test_decision_summary_removes_conflict_absence_and_followup_rechecks(self):
+        raw = """[TASK]
+- 최근 MCP 및 배포 관련 결정사항을 정리한다.
+[MUST KNOW]
+- 다음 배포는 토요일로 최종 결정됐다.
+- 위 이유로 금요일 vs 토요일은 self-correction이고, 서로 다른 출처의 final 충돌은 이 retrieval 범위에서는 확인되지 않음.
+[CONSTRAINTS]
+- Slack connector는 read-only다.
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- PR2는 open/draft이므로 실제 병합·적용 여부는 이 근거만으로 확정하지 않는다.
+- 토요일 결정이 이후 다시 바뀌었는지 여부는 이 retrieval에서 확인되지 않는다.
+[DO NOT ASSUME]
+- PR2가 병합되었는지 여부와 Slack/Notion 구현의 실제 적용 상태를 확정하지 않는다.
+[SOURCE MAP]
+- github:repo:pr:2
+- slack:C1:123
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("다음 배포는 토요일로 최종 결정됐다", cleaned)
+        self.assertNotIn("final 충돌", cleaned)
+        self.assertIn("[VERIFY BEFORE USE]\n- None", cleaned)
+        self.assertIn("[DO NOT ASSUME]\n- None", cleaned)
+
     def test_latest_live_output_noise_is_removed(self):
         raw = """[TASK]
 - 최근 MCP 및 배포 관련 결정사항을 정리한다.
