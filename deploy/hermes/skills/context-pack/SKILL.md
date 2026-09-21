@@ -153,6 +153,8 @@ GitHub 표현 규칙:
 ```
 
 규칙:
+- 기본적으로 **짧게 쓴다**. MUST KNOW 최대 6개, CONSTRAINTS 최대 4개, USEFUL 최대 2개 bullet을 목표로 한다. 한 bullet은 가능하면 한 문장이다.
+- SOURCE MAP은 실제 사용한 핵심 Evidence와 MCP callable만 남기고, 파일 목록·timing·evidence count·retrieval 설명을 반복하지 않는다.
 - 내용이 없으면 정확히 `- None`.
 - 같은 사실을 여러 section에 반복하지 않는다.
 - provenance만 따로 `- 근거:` bullet로 만들지 않는다.
