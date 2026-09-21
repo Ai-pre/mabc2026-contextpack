@@ -104,8 +104,13 @@ class CliHermesRunner:
                 f"{self.timeout_sec}s"
             ) from exc
 
-        duration = time.perf_counter() - started
-        retrieval_timing_ms = self._read_retrieval_timing(run_id)
+        finished = time.perf_counter()
+        duration = finished - started
+        retrieval_timing_ms = self._read_retrieval_timing(
+            run_id,
+            run_started_perf=started,
+            run_finished_perf=finished,
+        )
 
         # 실제 Handoff 후보는 stdout에서 추출. Hermes may return code 1
         # after reaching its iteration budget even though a complete final
@@ -225,7 +230,11 @@ class CliHermesRunner:
         )
 
     @staticmethod
-    def _read_retrieval_timing(run_id: str) -> dict[str, float]:
+    def _read_retrieval_timing(
+        run_id: str,
+        run_started_perf: float | None = None,
+        run_finished_perf: float | None = None,
+    ) -> dict[str, float]:
         if not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", run_id):
             return {}
         path = Path("/tmp") / f"contextpack-retrieval-{run_id}.json"
@@ -233,11 +242,34 @@ class CliHermesRunner:
             raw = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(raw, dict):
                 return {}
-            return {
+
+            public = {
                 str(key): round(float(value), 2)
                 for key, value in raw.items()
-                if isinstance(value, (int, float)) and value >= 0
+                if not str(key).startswith("_")
+                and isinstance(value, (int, float))
+                and value >= 0
             }
+
+            retrieval_started = raw.get("_retrieval_started_perf")
+            retrieval_finished = raw.get("_retrieval_finished_perf")
+            if (
+                isinstance(run_started_perf, (int, float))
+                and isinstance(run_finished_perf, (int, float))
+                and isinstance(retrieval_started, (int, float))
+                and isinstance(retrieval_finished, (int, float))
+                and run_started_perf <= retrieval_started <= retrieval_finished <= run_finished_perf
+            ):
+                public["before_retrieval"] = round(
+                    (retrieval_started - run_started_perf) * 1000,
+                    2,
+                )
+                public["after_retrieval"] = round(
+                    (run_finished_perf - retrieval_finished) * 1000,
+                    2,
+                )
+
+            return public
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return {}
         finally:
