@@ -439,6 +439,49 @@ class DocumentMcpTests(unittest.TestCase):
         with self.assertRaises(WorkspaceValidationError):
             sources.slack_retrieve(second, "test", "C012ABCDEF")
 
+    def test_live_slack_retrieve_excludes_join_events_and_zero_score_noise(self):
+        workspace_id = self.workspace()
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+
+        def fake_slack(method, **params):
+            if method == "conversations.info":
+                return {"ok": True, "channel": {"id": "C012ABCDEF", "name": "contextpack-test"}}
+            if method == "conversations.history":
+                return {
+                    "ok": True,
+                    "messages": [
+                        {
+                            "ts": "1789841033.699559",
+                            "user": "U2",
+                            "subtype": "channel_join",
+                            "text": "<@U2> has joined the channel",
+                        },
+                        {
+                            "ts": "1789840639.185659",
+                            "user": "U1",
+                            "text": "Slack connector는 read-only. 다음 배포는 토요일로 최종 결정.",
+                        },
+                        {
+                            "ts": "1789840000.000001",
+                            "user": "U3",
+                            "text": "점심 메뉴 추천",
+                        },
+                    ],
+                }
+            raise AssertionError(method)
+
+        with patch.object(sources, "_slack_api", side_effect=fake_slack):
+            response = json.loads(sources.slack_retrieve(
+                workspace_id, "Slack connector 배포 결정", "C012ABCDEF"
+            ))
+
+        texts = [item["text"] for item in response["messages"]]
+        self.assertEqual(len(texts), 1)
+        self.assertIn("토요일로 최종 결정", texts[0])
+        self.assertFalse(any("joined the channel" in text for text in texts))
+        self.assertFalse(any("점심 메뉴" in text for text in texts))
+        self.assertEqual(len(response["evidence"]), 1)
+
     def test_live_notion_retrieve_reads_recursive_registered_page(self):
         workspace_id = self.workspace()
         page_id = "12345678-1234-1234-1234-123456789abc"
