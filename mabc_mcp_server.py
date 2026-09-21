@@ -353,7 +353,7 @@ def github_retrieve(
         marker in query.casefold()
         for marker in ("최근", "최신", "변경", "change", "recent", "latest", "deploy", "배포")
     )
-    selected_commits = positive_commits[:6]
+    selected_commits = positive_commits[:4]
     if not selected_commits and recent_change_intent:
         selected_commits = compact_commits[:2]
     compact_commits = [
@@ -375,7 +375,7 @@ def github_retrieve(
             "updated_at": item.get("updated_at"),
             "merged_at": item.get("merged_at"),
             "title": title,
-            "body_preview": body[:450] if body else "",
+            "body_preview": body[:320] if body else "",
             "files": [
                 {
                     "filename": file.get("filename"),
@@ -383,7 +383,7 @@ def github_retrieve(
                     "additions": file.get("additions"),
                     "deletions": file.get("deletions"),
                 }
-                for file in files[:20]
+                for file in files[:10]
             ],
             "_score": _text_score(combined, terms),
         })
@@ -392,7 +392,7 @@ def github_retrieve(
         reverse=True,
     )
     positive_pulls = [item for item in compact_pulls if item["_score"] > 0]
-    selected_pulls = positive_pulls[:3]
+    selected_pulls = positive_pulls[:2]
     if not selected_pulls and recent_change_intent:
         selected_pulls = compact_pulls[:1]
     compact_pulls = [
@@ -412,7 +412,7 @@ def github_retrieve(
         "top_level_dirs": sorted({
             path.split("/", 1)[0] for path in paths if "/" in path
         })[:20],
-        "query_paths": [path for _, path in scored_paths[:15]],
+        "query_paths": [path for _, path in scored_paths[:8]],
     }
 
     normalized_evidence: list[dict[str, Any]] = []
@@ -623,7 +623,7 @@ def slack_retrieve(
             continue
         text = message.get("text") or ""
         subtype = message.get("subtype")
-        if subtype in {"channel_join", "channel_leave"} and not text:
+        if subtype in {"channel_join", "channel_leave"}:
             continue
         score = _text_score(text, terms)
         ranked.append({
@@ -640,7 +640,10 @@ def slack_retrieve(
         key=lambda item: (item["_score"], item.get("ts") or ""),
         reverse=True,
     )
-    selected = ranked[:20]
+    positive = [item for item in ranked if item["_score"] > 0]
+    # Keep the tool result compact. If lexical matching is sparse, retain only a
+    # tiny recent fallback instead of flooding the model with unrelated history.
+    selected = (positive[:12] if positive else ranked[:3])
     selected = [{k: v for k, v in item.items() if k != "_score"} for item in selected]
 
     conversation = snapshot["conversation"]
