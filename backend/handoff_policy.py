@@ -312,6 +312,13 @@ def _is_runtime_provenance_summary(text: str) -> bool:
     ))
 
 
+def _is_source_map_grouping_item(text: str) -> bool:
+    return bool(re.search(
+        r"^-?\s*(?:github|slack|notion|document)\s*:.*(?:retrieved evidence|동일 mcp 호출에서 retrieved evidence)",
+        text,
+    ))
+
+
 def _is_hypothetical_reopening_gap(text: str) -> bool:
     """Drop invented uncertainty about a final decision being reopened later.
 
@@ -377,6 +384,26 @@ def _is_crosscheck_only_verify(text: str) -> bool:
     return has_crosscheck_gap or (has_retrieval_scope and has_match_gap)
 
 
+def _is_decision_summary_task(task_body: str) -> bool:
+    text = _normalized(task_body)
+    return (
+        any(term in text for term in ("결정사항", "결정 사항", "decision"))
+        and any(term in text for term in ("정리", "요약", "summar"))
+    )
+
+
+def _is_noncritical_followup_gap(text: str) -> bool:
+    patterns = (
+        r"향후.*(?:병합|merge).*(?:시점|날짜)",
+        r"(?:실제 )?(?:배포|적용).*(?:실행|완료|시점|여부)",
+        r"(?:최종 )?구현 (?:형태|방식)",
+        r"future.*merge.*(?:time|date)",
+        r"(?:deployment|rollout).*(?:execution|completion|status)",
+        r"final implementation (?:shape|form)",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
 def _is_generic_coverage_disclaimer(text: str) -> bool:
     patterns = (
         r"위 .* 외.*추가 논의",
@@ -418,6 +445,8 @@ def sanitize_handoff(handoff: str) -> str:
     for index, match in enumerate(matches):
         end = matches[index + 1].start() if index + 1 < len(matches) else len(handoff)
         bodies[match.group(1)] = handoff[match.end():end].strip()
+
+    decision_summary_task = _is_decision_summary_task(bodies.get("[TASK]", ""))
 
     conflict_items = split_section_items(bodies.get("[UNRESOLVED CONFLICTS]", ""))
     resolved_conflict_items, split_promotions = _resolve_split_tentative_final_conflicts(conflict_items)
@@ -502,6 +531,7 @@ def sanitize_handoff(handoff: str) -> str:
                     _is_generic_coverage_disclaimer(text)
                     or _is_superseded_history(text)
                     or _is_hypothetical_reopening_gap(text)
+                    or (decision_summary_task and _is_noncritical_followup_gap(text))
                 ):
                     continue
 
@@ -533,7 +563,11 @@ def sanitize_handoff(handoff: str) -> str:
             source_items = []
             for item in split_section_items(bodies.get(section, "")):
                 text = _normalized(item)
-                if _is_low_value_retrieved_item(text) or _is_runtime_provenance_summary(text):
+                if (
+                    _is_low_value_retrieved_item(text)
+                    or _is_runtime_provenance_summary(text)
+                    or _is_source_map_grouping_item(text)
+                ):
                     continue
                 source_items.append(item)
             rendered.extend(source_items if source_items else ["- None"])
