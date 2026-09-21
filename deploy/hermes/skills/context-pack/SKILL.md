@@ -120,7 +120,8 @@ GitHub 표현 규칙:
 3. final↔final이 실제로 둘 이상인가? 그때만 UNRESOLVED CONFLICTS다.
 4. 실제 reopening Evidence가 있는가? 없으면 finality를 유지한다.
 5. resolved topic이 VERIFY/DO NOT ASSUME에 다시 들어갔는지 제거한다.
-6. 의미 없는 짧은 중복 bullet과 task-irrelevant evidence를 제거한다.
+6. "final 충돌이 확인되지 않았다" 같은 **충돌 부재 설명**은 MUST KNOW/CONSTRAINTS에 쓰지 않는다. 충돌이 없으면 [UNRESOLVED CONFLICTS]를 그냥 `- None`으로 둔다.
+7. 의미 없는 짧은 중복 bullet과 task-irrelevant evidence를 제거한다.
 
 ### 최종 Handoff Context 형식 (고정)
 
