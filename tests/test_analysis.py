@@ -1,4 +1,5 @@
 """Exercise the analysis boundary without starting an HTTP server or an LLM run."""
+import json
 import os
 import tempfile
 import unittest
@@ -325,6 +326,54 @@ class AnalysisTests(unittest.TestCase):
         )
         from backend.handoff_policy import _is_crosscheck_only_verify
         self.assertTrue(_is_crosscheck_only_verify(text.casefold()))
+
+    def test_handoff_sanitizer_dedupes_short_must_know_and_runtime_noise(self):
+        raw = """[TASK]
+- 최근 MCP/배포 결정 정리
+[MUST KNOW]
+- Slack에서 금요일 논의 중에서 토요일로 최종 결정했다는 self-correction이 확인된다.
+- 토요일 최종 결정
+[CONSTRAINTS]
+- None
+[USEFUL IF SPACE ALLOWS]
+- None
+[UNRESOLVED CONFLICTS]
+- None
+[VERIFY BEFORE USE]
+- None
+[DO NOT ASSUME]
+- SLACK_BOT_TOKEN 외 추가 배포 환경변수가 이 retrieval에 모두 포함됐다고 가정하지 말 것.
+- contextpack-test가 production 채널인지 채널명만으로 단정하지 말 것.
+[SOURCE MAP]
+- slack:C1/123 — 결정 메시지
+- retrieval 결과: github 5 evidence, slack 3 evidence; github 1438ms, slack 441ms.
+- mcp__mabc_sources__workspace_retrieve(workspace_id=ws_x, source_types=github,slack)
+"""
+        cleaned = CliHermesRunner._sanitize_handoff(raw)
+        self.assertIn("토요일로 최종 결정했다는 self-correction", cleaned)
+        self.assertNotIn("\n- 토요일 최종 결정\n", cleaned)
+        self.assertIn("[DO NOT ASSUME]\n- None", cleaned)
+        self.assertNotIn("retrieval 결과", cleaned)
+
+    def test_retrieval_timing_reader_splits_before_and_after_retrieval(self):
+        run_id = "timingregression123"
+        path = Path("/tmp") / f"contextpack-retrieval-{run_id}.json"
+        path.write_text(json.dumps({
+            "aggregate": 1000.0,
+            "github": 900.0,
+            "_retrieval_started_perf": 102.0,
+            "_retrieval_finished_perf": 103.0,
+        }), encoding="utf-8")
+        timing = CliHermesRunner._read_retrieval_timing(
+            run_id,
+            run_started_perf=100.0,
+            run_finished_perf=108.0,
+        )
+        self.assertEqual(timing["aggregate"], 1000.0)
+        self.assertEqual(timing["before_retrieval"], 2000.0)
+        self.assertEqual(timing["after_retrieval"], 5000.0)
+        self.assertNotIn("_retrieval_started_perf", timing)
+        self.assertFalse(path.exists())
 
     def test_handoff_sanitizer_drops_lone_final_from_conflicts_and_promotes_it(self):
         raw = """[TASK]
