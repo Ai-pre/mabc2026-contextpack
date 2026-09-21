@@ -273,6 +273,31 @@ def _is_degenerate_semantic_label(text: str) -> bool:
     }
 
 
+def _dedupe_subsumed_items(items: list[str]) -> list[str]:
+    """Drop short bullets whose semantic tokens are already contained in a richer bullet."""
+    normalized = [
+        re.sub(r"^-?\s*", "", _normalized(item)).strip(" .:")
+        for item in items
+    ]
+    keep: list[str] = []
+    for index, item in enumerate(items):
+        body = normalized[index]
+        tokens = re.findall(r"[0-9A-Za-z가-힣_]+", body)
+        informative = [token for token in tokens if len(token) >= 2]
+        if 2 <= len(informative) <= 8 and len(body) <= 60:
+            subsumed = False
+            for other_index, other_body in enumerate(normalized):
+                if other_index == index or len(other_body) <= len(body) + 12:
+                    continue
+                if all(token in other_body for token in informative):
+                    subsumed = True
+                    break
+            if subsumed:
+                continue
+        keep.append(item)
+    return keep
+
+
 def _count_final_signals(items: list[str]) -> int:
     return sum(
         sum(text.count(marker) for marker in FINAL_MARKERS)
@@ -282,7 +307,7 @@ def _count_final_signals(items: list[str]) -> int:
 
 def _is_runtime_provenance_summary(text: str) -> bool:
     return bool(re.search(
-        r"(?:retrieval\s+provenance|retrieval\s+summary|evidence\s+count)",
+        r"(?:retrieval\s+provenance|retrieval\s+summary|retrieval\s+결과|evidence\s+count|timing_ms)",
         text,
     ))
 
@@ -367,6 +392,9 @@ def _is_generic_coverage_disclaimer(text: str) -> bool:
         r"교차\s*확인.*(?:않|못)",
         r"(?:현재|이번|이)\s*retrieval.*(?:확인하지|검증하지|확인되지)",
         r"(?:github|slack|notion|document).*(?:일치 여부|동일 여부).*(?:확인하지|검증하지|확인되지)",
+        r"(?:외|밖).*추가.*(?:환경변수|설정값|일정).*(?:가정하지|추정하지|확정되어)",
+        r"(?:환경변수|설정값|일정).*(?:모두|전부).*retrieval.*(?:가정하지|추정하지)",
+        r"채널명만으로.*(?:단정|추정)",
     )
     return any(re.search(pattern, text) for pattern in patterns)
 
@@ -498,6 +526,8 @@ def sanitize_handoff(handoff: str) -> str:
                     if _normalized(promoted) not in normalized_existing:
                         items.append(promoted)
                         normalized_existing.add(_normalized(promoted))
+            if section == "[MUST KNOW]":
+                items = _dedupe_subsumed_items(items)
             rendered.extend(items if items else ["- None"])
         elif section == "[SOURCE MAP]":
             source_items = []
