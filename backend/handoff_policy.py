@@ -120,6 +120,9 @@ def _looks_like_analysis_scope_metadata(text: str) -> bool:
         r"(?:현재\s*)?(?:연결|등록)되어\s*있지\s*않.*(?:retrieve|사용하지)",
         r"^-\s*등록(?:된)?\s*workspace\s*source만\s*근거로\s*사용",
         r"등록(?:된)?\s*(?:workspace|작업공간)\s*source만.*근거",
+        r"등록(?:된)?\s*workspace의.*(?:저장소|repository|채널|channel).*(?:하나뿐|범위)",
+        r"(?:이|이번)\s*retrieval에서\s*얻은\s*evidence만\s*근거",
+        r"다른\s*(?:저장소|repository|slack\s*채널|channel|외부\s*웹).*(?:보충하지|사용하지)",
         r"\(이\s*workspace:\s*(?:github|slack|notion|document)",
     )
     return any(re.search(pattern, text) for pattern in patterns)
@@ -404,6 +407,39 @@ def _is_noncritical_followup_gap(text: str) -> bool:
     return any(re.search(pattern, text) for pattern in patterns)
 
 
+def _is_policy_echo(text: str) -> bool:
+    patterns = (
+        r"같은\s*결정\s*주제.*final claim.*unresolved conflicts",
+        r"서로\s*양립\s*불가능한.*final.*(?:둘|2).*(?:conflict|unresolved)",
+        r"source silence.*conflict.*아니",
+        r"(?:conflict|충돌).*(?:source silence|final↔final|final.*final)",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _is_none_prefixed_noise(text: str) -> bool:
+    return bool(re.match(r"^-?\s*none\s*[.:;-]", text))
+
+
+def _is_recheck_disclaimer(text: str) -> bool:
+    patterns = (
+        r"(?:retrieval|조회)\s*시점.*기준.*(?:다시|별도).*확인",
+        r"현재\s*(?:merge|병합)\s*여부.*(?:다시|별도).*확인",
+        r"상태는.*기준.*(?:재확인|다시 확인|별도 조회)",
+        r"if .*current.*status.*recheck",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _is_speculative_status_inference(text: str) -> bool:
+    patterns = (
+        r"반영된\s*쪽으로\s*볼\s*여지",
+        r"(?:상태값|status).*(?:그대로|기반).*(?:판단|해석)",
+        r"실제\s*배포\s*반영\s*여부.*(?:확정하지|단정하지)",
+    )
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
 def _is_generic_coverage_disclaimer(text: str) -> bool:
     patterns = (
         r"위 .* 외.*추가 논의",
@@ -422,6 +458,9 @@ def _is_generic_coverage_disclaimer(text: str) -> bool:
         r"(?:외|밖).*추가.*(?:환경변수|설정값|일정).*(?:가정하지|추정하지|확정되어)",
         r"(?:환경변수|설정값|일정).*(?:모두|전부).*retrieval.*(?:가정하지|추정하지)",
         r"채널명만으로.*(?:단정|추정)",
+        r"slack connector.*read-only.*(?:범위|scope).*(?:없|확인|추정)",
+        r"slack_bot_token\s*외.*(?:환경변수|변수).*(?:존재|필요|가정|추정)",
+        r"(?:github\s*)?(?:pr|commit).*(?:slack|결정).*(?:인과관계|선후관계|cross-confirm|교차 확인)",
     )
     return any(re.search(pattern, text) for pattern in patterns)
 
@@ -510,6 +549,15 @@ def sanitize_handoff(handoff: str) -> str:
             if section in semantic_sections and _is_degenerate_semantic_label(text):
                 continue
 
+            if section in semantic_sections and _is_none_prefixed_noise(text):
+                continue
+
+            if section in semantic_sections and _is_policy_echo(text):
+                continue
+
+            if section == "[USEFUL IF SPACE ALLOWS]" and _is_speculative_status_inference(text):
+                continue
+
             if section == "[UNRESOLVED CONFLICTS]":
                 if (
                     item in resolved_conflict_items
@@ -523,6 +571,7 @@ def sanitize_handoff(handoff: str) -> str:
                     _is_superseded_history(text)
                     or _is_hypothetical_reopening_gap(text)
                     or _is_crosscheck_only_verify(text)
+                    or _is_recheck_disclaimer(text)
                 ):
                     continue
 
@@ -562,6 +611,7 @@ def sanitize_handoff(handoff: str) -> str:
         elif section == "[SOURCE MAP]":
             source_items = []
             for item in split_section_items(bodies.get(section, "")):
+                item = re.sub(r"(?i)\bmermaid\s*:\s*", "", item)
                 text = _normalized(item)
                 if (
                     _is_low_value_retrieved_item(text)
