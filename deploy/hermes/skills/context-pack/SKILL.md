@@ -102,6 +102,15 @@ MISSING은 Task-critical 정보가 Evidence에 실제로 없을 때만 사용한
 
 Task-critical missing이 없으면 `[DO NOT ASSUME]`은 `- None`이다.
 
+결정사항을 "정리/요약"하는 Task에서는 향후 merge 시점, 실제 실행 완료 여부, 최종 구현 형태처럼
+**현재 결정 자체를 이해하는 데 필요하지 않은 후속 상태**를 새 MISSING으로 만들지 않는다.
+사용자가 실제 배포/적용 상태 확인을 요구한 경우에만 그런 항목을 남긴다.
+
+GitHub 표현 규칙:
+- commit은 "존재/작성/반영된 commit"으로 기술한다.
+- `merged / draft / open / closed`는 pull request 상태에만 사용한다.
+- commit timestamp와 PR merged_at이 같아도 commit 자체를 "merged"라고 표현하지 않는다.
+
 ### Finality Preflight
 
 최종 출력 직전에 decision topic별로 확인한다.
