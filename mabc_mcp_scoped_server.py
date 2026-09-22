@@ -41,10 +41,13 @@ def _scope() -> str:
 def _tool_names_for_workspace(workspace: dict) -> tuple[str, ...]:
     """Return the exact MCP surface for one bound workspace.
 
-    Multi-source workspaces expose only workspace_retrieve. This makes the
-    single aggregate call a runtime-enforced boundary instead of a prompt-only
-    convention.
+    Multi-source workspaces expose only workspace_retrieve. When evidence was
+    preloaded through MCP before the model call, advertise no tools so Hermes
+    performs exactly one inference instead of entering another tool round trip.
     """
+    if os.environ.get("CONTEXTPACK_PRELOADED_EVIDENCE") == "1":
+        return ()
+
     if workspace.get("is_demo"):
         return (
             "demo_context_retrieve",
