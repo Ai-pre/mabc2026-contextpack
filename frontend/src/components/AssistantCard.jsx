@@ -15,7 +15,38 @@ function readableMcpTool(name) {
 
 function AssistantCard({ message, onRetry }) {
   const { status, elapsedSec, toolCalls, skillUsed, handoff, error, errorDetail, sources = [], trace = {} } = message
-  const mcpTools = Array.isArray(trace.mcp_tools) ? trace.mcp_tools : []
+  const mcpTools = Array.isArray(trace.mcp_tools)
+    ? [...new Set(trace.mcp_tools.filter(Boolean))]
+    : []
+  const retrievalTiming = trace?.retrieval_timing_ms &&
+    typeof trace.retrieval_timing_ms === 'object'
+    ? trace.retrieval_timing_ms
+    : {}
+  const aggregateMs = typeof retrievalTiming.aggregate === 'number'
+    ? retrievalTiming.aggregate
+    : null
+  const beforeRetrievalMs = typeof retrievalTiming.before_retrieval === 'number'
+    ? retrievalTiming.before_retrieval
+    : null
+  const afterRetrievalMs = typeof retrievalTiming.after_retrieval === 'number'
+    ? retrievalTiming.after_retrieval
+    : null
+  const residualSec = aggregateMs != null && typeof elapsedSec === 'number'
+    ? Math.max(0, elapsedSec - aggregateMs / 1000)
+    : null
+  const hasStageSplit = beforeRetrievalMs != null && afterRetrievalMs != null
+  const timingParts = aggregateMs == null
+    ? []
+    : [
+        hasStageSplit ? `before retrieval ${(beforeRetrievalMs / 1000).toFixed(1)}s` : null,
+        `retrieval ${(aggregateMs / 1000).toFixed(1)}s`,
+        ...['github', 'slack', 'notion', 'document']
+          .filter((key) => typeof retrievalTiming[key] === 'number')
+          .map((key) => `${key} ${(retrievalTiming[key] / 1000).toFixed(1)}s`),
+        hasStageSplit
+          ? `after retrieval ${(afterRetrievalMs / 1000).toFixed(1)}s`
+          : (residualSec == null ? null : `agent + generation ${residualSec.toFixed(1)}s`),
+      ].filter(Boolean)
 
   return (
     <div className={`assistant-card assistant-card--${status}`}>
@@ -80,6 +111,12 @@ function AssistantCard({ message, onRetry }) {
               <div className="result-tools" title={mcpTools.join('\n')}>
                 <span className="result-tools-label">MCP used</span>
                 <span>{mcpTools.map(readableMcpTool).join(' · ')}</span>
+              </div>
+            )}
+            {timingParts.length > 0 && (
+              <div className="result-tools" title="Before retrieval includes Hermes startup/tool planning; retrieval is connector time; after retrieval includes post-tool model generation and Hermes finalization.">
+                <span className="result-tools-label">Timing</span>
+                <span>{timingParts.join(' · ')}</span>
               </div>
             )}
           </div>

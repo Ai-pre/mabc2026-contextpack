@@ -13,6 +13,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 import mabc_mcp_server as sources
+import mabc_mcp_scoped_server as scoped_sources
 from backend.document_parser import parse_document
 from backend.workspace_store import SourceNotFound, WorkspaceStore, WorkspaceValidationError
 
@@ -20,7 +21,7 @@ from backend.workspace_store import SourceNotFound, WorkspaceStore, WorkspaceVal
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEMO_TOOL_NAMES = {f"{connector}_{action}" for connector in ("github", "jira", "slack", "notion")
                    for action in ("search", "get")}
-TOOL_NAMES = DEMO_TOOL_NAMES | {"demo_context_retrieve", "github_retrieve", "document_retrieve", "document_search", "document_get"}
+TOOL_NAMES = DEMO_TOOL_NAMES | {"workspace_retrieve", "demo_context_retrieve", "github_retrieve", "slack_retrieve", "notion_retrieve", "document_retrieve", "document_search", "document_get"}
 
 
 class DocumentMcpTests(unittest.TestCase):
@@ -55,6 +56,11 @@ class DocumentMcpTests(unittest.TestCase):
         self.assertLess(len(raw), 7000)
         self.assertTrue(response["rules"]["preserve_conflicts"])
         self.assertEqual(response["rules"]["do_not_assume_missing_policy"], ["overseas partial refund"])
+        self.assertEqual(response["evidence_schema_version"], "1.0")
+        self.assertTrue(all({
+            "evidence_id", "source_type", "kind", "source_ref", "content",
+            "timestamp", "author", "metadata",
+        }.issubset(item) for item in response["evidence"]))
         refs = {item["ref"] for item in response["evidence"]}
         self.assertIn("PR #148", refs)
         self.assertIn("PR #152", refs)
@@ -64,9 +70,13 @@ class DocumentMcpTests(unittest.TestCase):
         self.assertIn("14 days", claims)
         self.assertIn("keep the general-payment refund window at 7 days", claims)
         self.assertIn("not defined", claims)
-        self.assertNotIn("PR #160", raw)
-        self.assertNotIn("MKT-42", raw)
-        self.assertNotIn("site-reliability", raw)
+        evidence_text = "\n".join(
+            f"{item.get('source_ref', '')}\n{item.get('content', '')}"
+            for item in response["evidence"]
+        )
+        self.assertNotIn("PR #160", evidence_text)
+        self.assertNotIn("MKT-42", evidence_text)
+        self.assertNotIn("site-reliability", evidence_text)
 
     def test_demo_search_and_get_contracts_remain_unchanged(self):
         github = json.loads(sources.github_search("pr-148"))
@@ -111,6 +121,53 @@ class DocumentMcpTests(unittest.TestCase):
             else:
                 self.assertIn("error", json.loads(fn("missing")))
 
+    def test_scoped_server_exposes_only_workspace_retrieve_for_multi_source(self):
+        workspace = {
+            "is_demo": False,
+            "sources": [
+                {"source_type": "connector", "connector": "github", "repository": "owner/repo"},
+                {"source_type": "connector", "connector": "slack", "channel": "C012ABCDEF"},
+            ],
+        }
+        self.assertEqual(
+            scoped_sources._tool_names_for_workspace(workspace),
+            ("workspace_retrieve",),
+        )
+
+    def test_scoped_server_advertises_no_tools_for_preloaded_evidence(self):
+        workspace = {
+            "is_demo": False,
+            "sources": [
+                {"source_type": "connector", "connector": "github", "repository": "owner/repo"},
+                {"source_type": "connector", "connector": "slack", "channel": "C012ABCDEF"},
+            ],
+        }
+        with patch.dict(os.environ, {"CONTEXTPACK_PRELOADED_EVIDENCE": "1"}):
+            self.assertEqual(scoped_sources._tool_names_for_workspace(workspace), ())
+
+    def test_scoped_server_keeps_single_source_surface(self):
+        slack_only = {
+            "is_demo": False,
+            "sources": [
+                {"source_type": "connector", "connector": "slack", "channel": "C012ABCDEF"},
+            ],
+        }
+        self.assertEqual(
+            scoped_sources._tool_names_for_workspace(slack_only),
+            ("slack_retrieve",),
+        )
+
+        upload_only = {
+            "is_demo": False,
+            "sources": [
+                {"source_type": "upload", "id": "src_x"},
+            ],
+        }
+        self.assertEqual(
+            scoped_sources._tool_names_for_workspace(upload_only),
+            ("document_retrieve", "document_search", "document_get"),
+        )
+
     def test_all_ten_tools_have_stable_schemas_in_each_scope(self):
         for scope in ("demo", self.store.create_workspace()["workspace_id"]):
             with self.subTest(scope=scope), patch.dict(os.environ, {"CONTEXTPACK_WORKSPACE_ID": scope}):
@@ -119,10 +176,16 @@ class DocumentMcpTests(unittest.TestCase):
                 for name in DEMO_TOOL_NAMES:
                     expected = {"query", "limit"} if name.endswith("search") else {"item_id"}
                     self.assertEqual(set(tools[name].input_schema["properties"]), expected)
+                self.assertEqual(set(tools["workspace_retrieve"].input_schema["properties"]),
+                                 {"workspace_id", "query", "source_types"})
                 self.assertEqual(set(tools["demo_context_retrieve"].input_schema["properties"]),
                                  {"query"})
                 self.assertEqual(set(tools["github_retrieve"].input_schema["properties"]),
                                  {"workspace_id", "query", "repository", "recent_limit"})
+                self.assertEqual(set(tools["slack_retrieve"].input_schema["properties"]),
+                                 {"workspace_id", "query", "channel", "message_limit"})
+                self.assertEqual(set(tools["notion_retrieve"].input_schema["properties"]),
+                                 {"workspace_id", "query", "page_id"})
                 self.assertEqual(set(tools["document_retrieve"].input_schema["properties"]),
                                  {"workspace_id", "query", "top_k", "max_chars_per_doc"})
                 self.assertEqual(set(tools["document_search"].input_schema["properties"]),
@@ -164,6 +227,65 @@ class DocumentMcpTests(unittest.TestCase):
                     sources.github_search("pr-148")
                 with self.assertRaises(WorkspaceValidationError):
                     sources.document_search("demo", "")
+
+    def test_workspace_retrieve_aggregates_github_and_slack_once(self):
+        workspace_id = self.workspace()
+        self.store.add_github_source(workspace_id, "Ai-pre/mabc2026-contextpack")
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+
+        github_payload = json.dumps({
+            "evidence": [{
+                "evidence_id": "github:repo:pr:1",
+                "source_type": "github",
+                "kind": "pull_request",
+                "source_ref": "repo#PR1",
+                "content": "PR #1 merged",
+                "timestamp": "2026-09-19T00:00:00Z",
+                "author": None,
+                "metadata": {},
+            }]
+        })
+        slack_payload = json.dumps({
+            "evidence": [{
+                "evidence_id": "slack:C012ABCDEF:1",
+                "source_type": "slack",
+                "kind": "message",
+                "source_ref": "C012ABCDEF/1",
+                "content": "다음 배포는 토요일로 최종 결정",
+                "timestamp": "2026-09-19T01:00:00Z",
+                "author": "U1",
+                "metadata": {},
+            }]
+        })
+
+        with patch.object(sources, "github_retrieve", return_value=github_payload) as github, \
+             patch.object(sources, "slack_retrieve", return_value=slack_payload) as slack:
+            response = json.loads(sources.workspace_retrieve(
+                workspace_id,
+                "MCP 배포 결정사항",
+                "github,slack",
+            ))
+
+        self.assertEqual(response["requested_source_types"], ["github", "slack"])
+        self.assertEqual(
+            {item["source_type"] for item in response["evidence"]},
+            {"github", "slack"},
+        )
+        self.assertEqual(len(response["retrievals"]), 2)
+        self.assertGreaterEqual(response["timing_ms"]["aggregate"], 0)
+        self.assertGreaterEqual(response["timing_ms"]["github"], 0)
+        self.assertGreaterEqual(response["timing_ms"]["slack"], 0)
+        self.assertTrue(all("duration_ms" in item for item in response["retrievals"]))
+        github.assert_called_once_with(
+            workspace_id,
+            "MCP 배포 결정사항",
+            repository="Ai-pre/mabc2026-contextpack",
+        )
+        slack.assert_called_once_with(
+            workspace_id,
+            "MCP 배포 결정사항",
+            channel="C012ABCDEF",
+        )
 
     def test_live_github_retrieve_aggregates_registered_repository(self):
         workspace_id = self.workspace()
@@ -211,7 +333,7 @@ class DocumentMcpTests(unittest.TestCase):
              patch.object(sources, "_github_api", side_effect=fake_api):
             raw = sources.github_retrieve(
                 workspace_id,
-                "ContextPack MCP deployment changes",
+                "ContextPack structure MCP deployment changes deploy hermes config",
                 "Ai-pre/mabc2026-contextpack",
             )
 
@@ -225,10 +347,230 @@ class DocumentMcpTests(unittest.TestCase):
         )
         self.assertIn("deploy/hermes/config.yaml", response["tree_summary"]["query_paths"])
         self.assertIn("Live GitHub MCP", response["readme_preview"])
+        self.assertLessEqual(len(response["readme_preview"]), 900)
+        self.assertEqual(response["evidence_schema_version"], "1.0")
+        self.assertTrue(any(item["kind"] == "commit" for item in response["evidence"]))
+        self.assertTrue(any(item["kind"] == "pull_request" for item in response["evidence"]))
+        self.assertTrue(all(item["source_type"] == "github" for item in response["evidence"]))
 
         with patch.dict(os.environ, {"GITHUB_MCP_TOKEN": "test-token"}):
             with self.assertRaises(WorkspaceValidationError):
                 sources.github_retrieve(workspace_id, "x", "other/repo")
+
+    def test_live_github_retrieve_does_not_always_inject_readme_overview(self):
+        workspace_id = self.workspace()
+        self.store.add_github_source(workspace_id, "Ai-pre/mabc2026-contextpack")
+
+        def fake_api(path):
+            if path == "/repos/Ai-pre/mabc2026-contextpack":
+                return {
+                    "description": "Context handoff",
+                    "default_branch": "main",
+                    "updated_at": "2026-09-20T00:00:00Z",
+                    "pushed_at": "2026-09-20T00:00:00Z",
+                }
+            if "/commits?" in path:
+                return [{
+                    "sha": "abc123456789",
+                    "commit": {
+                        "message": "deploy: update Cloud Run container startup",
+                        "author": {"date": "2026-09-20T00:00:00Z"},
+                    },
+                }]
+            if "/pulls?state=all" in path:
+                return []
+            if path.endswith("/readme"):
+                import base64
+                return {"content": base64.b64encode(
+                    b"# ContextPack\nGeneric product overview and eight-section handoff format"
+                ).decode("ascii")}
+            if "/git/trees/" in path:
+                return {"tree": [{"path": "README.md"}, {"path": "deploy/cloudrun.yaml"}]}
+            raise AssertionError(path)
+
+        with patch.dict(os.environ, {"GITHUB_MCP_TOKEN": "test-token"}), \
+             patch.object(sources, "_github_api", side_effect=fake_api):
+            response = json.loads(sources.github_retrieve(
+                workspace_id,
+                "최근 배포 변경사항만 정리",
+                "Ai-pre/mabc2026-contextpack",
+            ))
+
+        self.assertEqual(response["readme_preview"], "")
+        kinds = [item["kind"] for item in response["evidence"]]
+        self.assertIn("commit", kinds)
+        self.assertNotIn("document", kinds)
+
+    def test_live_slack_retrieve_ranks_registered_channel_messages(self):
+        workspace_id = self.workspace()
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+
+        def fake_slack(method, **params):
+            if method == "conversations.info":
+                return {
+                    "ok": True,
+                    "channel": {
+                        "id": "C012ABCDEF",
+                        "name": "payment-eng",
+                        "topic": {"value": "Payments"},
+                        "purpose": {"value": "Payment engineering"},
+                    },
+                }
+            if method == "conversations.history":
+                return {
+                    "ok": True,
+                    "messages": [
+                        {"ts": "1789830000.000001", "user": "U1",
+                         "text": "배포는 내일 진행합니다.", "reply_count": 0},
+                        {"ts": "1789830100.000002", "user": "U2",
+                         "text": "ContextPack Slack connector 배포 변경 확인 필요", "reply_count": 2},
+                    ],
+                }
+            raise AssertionError(method)
+
+        with patch.object(sources, "_slack_api", side_effect=fake_slack):
+            raw = sources.slack_retrieve(
+                workspace_id, "Slack connector 배포", "C012ABCDEF"
+            )
+
+        response = json.loads(raw)
+        self.assertEqual(response["channel"], "C012ABCDEF")
+        self.assertEqual(response["channel_name"], "payment-eng")
+        self.assertEqual(response["messages"][0]["user"], "U2")
+        self.assertIn("Slack connector", response["messages"][0]["text"])
+        self.assertEqual(response["evidence_schema_version"], "1.0")
+        self.assertEqual(response["evidence"][0]["source_type"], "slack")
+        self.assertEqual(response["evidence"][0]["kind"], "message")
+        self.assertEqual(response["evidence"][0]["author"], "U2")
+        self.assertIn("Slack connector", response["evidence"][0]["content"])
+
+        second = self.store.create_workspace()["workspace_id"]
+        os.environ["CONTEXTPACK_WORKSPACE_ID"] = second
+        self.store.add_slack_source(second, "C099ZZZZZZ")
+        with self.assertRaises(WorkspaceValidationError):
+            sources.slack_retrieve(second, "test", "C012ABCDEF")
+
+    def test_live_slack_retrieve_excludes_join_events_and_zero_score_noise(self):
+        workspace_id = self.workspace()
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+
+        def fake_slack(method, **params):
+            if method == "conversations.info":
+                return {"ok": True, "channel": {"id": "C012ABCDEF", "name": "contextpack-test"}}
+            if method == "conversations.history":
+                return {
+                    "ok": True,
+                    "messages": [
+                        {
+                            "ts": "1789841033.699559",
+                            "user": "U2",
+                            "subtype": "channel_join",
+                            "text": "<@U2> has joined the channel",
+                        },
+                        {
+                            "ts": "1789840639.185659",
+                            "user": "U1",
+                            "text": "Slack connector는 read-only. 다음 배포는 토요일로 최종 결정.",
+                        },
+                        {
+                            "ts": "1789840000.000001",
+                            "user": "U3",
+                            "text": "점심 메뉴 추천",
+                        },
+                    ],
+                }
+            raise AssertionError(method)
+
+        with patch.object(sources, "_slack_api", side_effect=fake_slack):
+            response = json.loads(sources.slack_retrieve(
+                workspace_id, "Slack connector 배포 결정", "C012ABCDEF"
+            ))
+
+        texts = [item["text"] for item in response["messages"]]
+        self.assertEqual(len(texts), 1)
+        self.assertIn("토요일로 최종 결정", texts[0])
+        self.assertFalse(any("joined the channel" in text for text in texts))
+        self.assertFalse(any("점심 메뉴" in text for text in texts))
+        self.assertEqual(len(response["evidence"]), 1)
+
+    def test_live_notion_retrieve_reads_recursive_registered_page(self):
+        workspace_id = self.workspace()
+        page_id = "12345678-1234-1234-1234-123456789abc"
+        self.store.add_notion_source(workspace_id, page_id)
+
+        def rich(text):
+            return [{"plain_text": text}]
+
+        def fake_notion(path):
+            if path == f"/pages/{page_id}":
+                return {
+                    "id": page_id,
+                    "url": "https://www.notion.so/test",
+                    "created_time": "2026-09-01T00:00:00.000Z",
+                    "last_edited_time": "2026-09-20T00:00:00.000Z",
+                    "properties": {
+                        "title": {"type": "title", "title": rich("ContextPack Spec")}
+                    },
+                }
+            if path == f"/blocks/{page_id}/children?page_size=100":
+                return {
+                    "results": [
+                        {
+                            "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                            "type": "heading_1",
+                            "heading_1": {"rich_text": rich("Slack connector")},
+                            "has_children": False,
+                            "last_edited_time": "2026-09-20T00:00:00.000Z",
+                        },
+                        {
+                            "id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                            "type": "toggle",
+                            "toggle": {"rich_text": rich("배포 체크리스트")},
+                            "has_children": True,
+                            "last_edited_time": "2026-09-20T00:00:00.000Z",
+                        },
+                    ],
+                    "has_more": False,
+                    "next_cursor": None,
+                }
+            if path == "/blocks/bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/children?page_size=100":
+                return {
+                    "results": [
+                        {
+                            "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+                            "type": "paragraph",
+                            "paragraph": {"rich_text": rich("Notion API key 설정 필요")},
+                            "has_children": False,
+                            "last_edited_time": "2026-09-20T00:00:00.000Z",
+                        }
+                    ],
+                    "has_more": False,
+                    "next_cursor": None,
+                }
+            raise AssertionError(path)
+
+        with patch.object(sources, "_notion_api", side_effect=fake_notion):
+            raw = sources.notion_retrieve(
+                workspace_id, "Notion API 배포", page_id
+            )
+
+        response = json.loads(raw)
+        self.assertEqual(response["page_id"], page_id)
+        self.assertEqual(response["page_title"], "ContextPack Spec")
+        self.assertEqual(response["total_blocks_read"], 3)
+        texts = [item["text"] for item in response["blocks"]]
+        self.assertIn("Notion API key 설정 필요", texts)
+        self.assertEqual(response["evidence_schema_version"], "1.0")
+        self.assertTrue(response["evidence"])
+        self.assertTrue(all(item["source_type"] == "notion" for item in response["evidence"]))
+        self.assertTrue(any("Notion API key 설정 필요" in item["content"] for item in response["evidence"]))
+
+        second = self.store.create_workspace()["workspace_id"]
+        os.environ["CONTEXTPACK_WORKSPACE_ID"] = second
+        other_page = "aaaaaaaa-1234-1234-1234-123456789abc"
+        self.store.add_notion_source(second, other_page)
+        with self.assertRaises(WorkspaceValidationError):
+            sources.notion_retrieve(second, "test", page_id)
 
     def test_multi_term_korean_english_search_and_exact_snippet_offsets(self):
         workspace_id = self.workspace()
@@ -264,6 +606,10 @@ class DocumentMcpTests(unittest.TestCase):
         self.assertEqual(set(response["results"][0]),
                          {"document_id", "title", "timestamp", "score", "offset",
                           "body", "next_offset", "truncated"})
+        self.assertEqual(response["evidence_schema_version"], "1.0")
+        self.assertEqual(len(response["evidence"]), len(response["results"]))
+        self.assertTrue(all(item["source_type"] == "document" for item in response["evidence"]))
+        self.assertTrue(all(item["kind"] == "document_excerpt" for item in response["evidence"]))
 
     def test_unicode_casefold_offsets_still_use_original_characters(self):
         # Use existing fixture text; helper offsets also cover case-fold expansions without storing test documents.

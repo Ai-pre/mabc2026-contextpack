@@ -7,16 +7,19 @@ from __future__ import annotations
 import base64
 import json
 import os
+import time
 import pathlib
 import re
 import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from typing import Any
 
 from mcp.server import MCPServer
 from backend.workspace_store import WorkspaceStore, WorkspaceValidationError
+from backend.evidence_schema import EVIDENCE_SCHEMA_VERSION, make_evidence
 
 
 # ---------------------------------------------------------------------------
@@ -84,10 +87,10 @@ _NOTION_SECTIONS = _split_notion_sections(_NOTION)
 # tool 정의
 # ---------------------------------------------------------------------------
 
-server = MCPServer("mabc-sources", "1.0.0",
+server = MCPServer("mabc-sources", "1.1.0",
                    description="ContextPack workspace source connector. " +
-                   "업로드 문서와 demo workspace의 GitHub, Jira, Slack, Notion 데이터를 제공한다. " +
-                   "Solar Agent가 Role+Task에 따라 필요한 tool을 선택하여 호출한다.")
+                   "업로드 문서와 live GitHub/Slack/Notion Source, demo fixture를 제공한다. " +
+                   "Solar Agent가 Role+Task에 따라 필요한 retrieve tool을 선택하여 호출한다.")
 
 
 def _tool(name: str, description: str, fn):
@@ -145,7 +148,7 @@ def _registered_github_repositories(workspace_id: str) -> list[str]:
 
 def _query_terms(query: str) -> list[str]:
     return list(dict.fromkeys(
-        term for term in re.findall(r"[A-Za-z0-9_.-]+", query.casefold())
+        term for term in re.findall(r"[\w.-]+", query.casefold(), flags=re.UNICODE)
         if len(term) >= 2
     ))
 
@@ -153,6 +156,52 @@ def _query_terms(query: str) -> list[str]:
 def _text_score(value: str, terms: list[str]) -> int:
     folded = value.casefold()
     return sum(1 for term in terms if term in folded)
+
+
+def _github_query_terms(query: str) -> list[str]:
+    """Expand a few common bilingual repository-task terms.
+
+    This stays GitHub-specific so Slack/Notion ranking semantics are unchanged.
+    """
+    terms = _query_terms(query)
+    folded = query.casefold()
+    expansions = {
+        "배포": ("deploy", "deployment", "cloud run"),
+        "변경": ("change", "changes", "feat", "fix", "refactor"),
+        "변경사항": ("change", "changes", "feat", "fix", "refactor"),
+        "구조": ("architecture", "structure"),
+        "아키텍처": ("architecture", "structure"),
+        "최신": ("latest", "recent"),
+        "최근": ("latest", "recent"),
+    }
+    for marker, extra in expansions.items():
+        if marker in folded:
+            terms.extend(extra)
+    return list(dict.fromkeys(term for term in terms if term))
+
+
+def _best_text_excerpt(text: str, terms: list[str], max_chars: int = 900) -> str:
+    """Return a bounded excerpt around the most query-relevant line."""
+    if not text:
+        return ""
+    lines = text.splitlines()
+    if not lines:
+        return text[:max_chars]
+    scored = [(_text_score(line, terms), index) for index, line in enumerate(lines)]
+    score, index = max(scored, key=lambda item: (item[0], -item[1]))
+    if score <= 0:
+        return text[:max_chars]
+    start = max(0, index - 3)
+    selected: list[str] = []
+    total = 0
+    for line in lines[start:]:
+        if total + len(line) + 1 > max_chars:
+            break
+        selected.append(line)
+        total += len(line) + 1
+        if len(selected) >= 14:
+            break
+    return "\n".join(selected).strip()
 
 
 @server.tool()
@@ -283,7 +332,7 @@ def github_retrieve(
     readme = snapshot["readme"]
     paths = snapshot["paths"]
 
-    terms = _query_terms(query)
+    terms = _github_query_terms(query)
 
     compact_commits = []
     for item in commits:
@@ -299,9 +348,17 @@ def github_retrieve(
         key=lambda item: (item["_score"], item.get("date") or ""),
         reverse=True,
     )
+    positive_commits = [item for item in compact_commits if item["_score"] > 0]
+    recent_change_intent = any(
+        marker in query.casefold()
+        for marker in ("최근", "최신", "변경", "change", "recent", "latest", "deploy", "배포")
+    )
+    selected_commits = positive_commits[:4]
+    if not selected_commits and recent_change_intent:
+        selected_commits = compact_commits[:2]
     compact_commits = [
         {k: v for k, v in item.items() if k != "_score"}
-        for item in compact_commits[:6]
+        for item in selected_commits
     ]
 
     compact_pulls = []
@@ -318,7 +375,7 @@ def github_retrieve(
             "updated_at": item.get("updated_at"),
             "merged_at": item.get("merged_at"),
             "title": title,
-            "body_preview": body[:450] if body else "",
+            "body_preview": body[:320] if body else "",
             "files": [
                 {
                     "filename": file.get("filename"),
@@ -326,7 +383,7 @@ def github_retrieve(
                     "additions": file.get("additions"),
                     "deletions": file.get("deletions"),
                 }
-                for file in files[:20]
+                for file in files[:10]
             ],
             "_score": _text_score(combined, terms),
         })
@@ -334,9 +391,13 @@ def github_retrieve(
         key=lambda item: (item["_score"], item.get("updated_at") or ""),
         reverse=True,
     )
+    positive_pulls = [item for item in compact_pulls if item["_score"] > 0]
+    selected_pulls = positive_pulls[:2]
+    if not selected_pulls and recent_change_intent:
+        selected_pulls = compact_pulls[:1]
     compact_pulls = [
         {k: v for k, v in item.items() if k != "_score"}
-        for item in compact_pulls[:2]
+        for item in selected_pulls
     ]
 
     scored_paths = [
@@ -351,8 +412,70 @@ def github_retrieve(
         "top_level_dirs": sorted({
             path.split("/", 1)[0] for path in paths if "/" in path
         })[:20],
-        "query_paths": [path for _, path in scored_paths[:15]],
+        "query_paths": [path for _, path in scored_paths[:8]],
     }
+
+    normalized_evidence: list[dict[str, Any]] = []
+    for commit in compact_commits:
+        normalized_evidence.append(make_evidence(
+            evidence_id=f"github:{repository}:commit:{commit.get('sha')}",
+            source_type="github",
+            source_ref=f"{repository}@{commit.get('sha')}",
+            kind="commit",
+            content=commit.get("message") or "(commit message unavailable)",
+            timestamp=commit.get("date"),
+            metadata={"repository": repository, "sha": commit.get("sha")},
+        ))
+    for pull in compact_pulls:
+        files_text = ", ".join(
+            file.get("filename") or "" for file in pull.get("files", []) if file.get("filename")
+        )
+        content = "\n".join(filter(None, [
+            pull.get("title") or "",
+            pull.get("body_preview") or "",
+            f"changed files: {files_text}" if files_text else "",
+        ]))
+        normalized_evidence.append(make_evidence(
+            evidence_id=f"github:{repository}:pr:{pull.get('number')}",
+            source_type="github",
+            source_ref=f"{repository}#PR{pull.get('number')}",
+            kind="pull_request",
+            content=content or "(pull request content unavailable)",
+            timestamp=pull.get("merged_at") or pull.get("updated_at"),
+            metadata={
+                "repository": repository,
+                "number": pull.get("number"),
+                "state": pull.get("state"),
+                "draft": pull.get("draft"),
+                "merged_at": pull.get("merged_at"),
+                "files": pull.get("files", []),
+            },
+        ))
+    readme_intent = any(
+        marker in query.casefold()
+        for marker in ("구조", "아키텍처", "architecture", "structure", "overview", "readme")
+    )
+    readme_excerpt = _best_text_excerpt(readme, terms) if readme and readme_intent else ""
+    if readme_excerpt:
+        normalized_evidence.append(make_evidence(
+            evidence_id=f"github:{repository}:readme",
+            source_type="github",
+            source_ref=f"{repository}:README",
+            kind="document",
+            content=readme_excerpt,
+            timestamp=metadata.get("pushed_at") or metadata.get("updated_at"),
+            metadata={"repository": repository, "excerpted": True},
+        ))
+    if tree_summary["query_paths"]:
+        normalized_evidence.append(make_evidence(
+            evidence_id=f"github:{repository}:paths",
+            source_type="github",
+            source_ref=f"{repository}:tree",
+            kind="repository_paths",
+            content="query-relevant paths: " + ", ".join(tree_summary["query_paths"]),
+            timestamp=metadata.get("pushed_at") or metadata.get("updated_at"),
+            metadata={"repository": repository},
+        ))
 
     return json.dumps({
         "workspace_id": workspace_id,
@@ -367,7 +490,433 @@ def github_retrieve(
         "recent_commits": compact_commits,
         "relevant_recent_pull_requests": compact_pulls,
         "tree_summary": tree_summary,
-        "readme_preview": readme,
+        "readme_preview": readme_excerpt,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
+        "evidence": normalized_evidence,
+        "cache_reused": cache_reused,
+    }, ensure_ascii=False, separators=(",", ":"))
+
+
+# --- Live Slack connector helpers ---
+
+_SLACK_LIVE_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+
+
+def _slack_token() -> str:
+    token = os.environ.get("SLACK_BOT_TOKEN", "").strip()
+    if not token or token.startswith("${"):
+        raise WorkspaceValidationError("Live Slack is not configured on this server.")
+    return token
+
+
+def _slack_api(method: str, **params: Any) -> dict[str, Any]:
+    encoded = urllib.parse.urlencode({
+        key: str(value).lower() if isinstance(value, bool) else value
+        for key, value in params.items()
+        if value is not None
+    })
+    url = f"https://slack.com/api/{method}"
+    if encoded:
+        url += "?" + encoded
+    request = urllib.request.Request(
+        url,
+        headers={
+            "Authorization": f"Bearer {_slack_token()}",
+            "Accept": "application/json",
+            "User-Agent": "ContextPack/0.1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise WorkspaceValidationError(f"Slack API returned HTTP {exc.code}.") from exc
+    except (urllib.error.URLError, TimeoutError, ValueError, UnicodeError) as exc:
+        raise WorkspaceValidationError(f"Slack API request failed: {exc}") from exc
+    if not isinstance(payload, dict) or not payload.get("ok"):
+        error = payload.get("error", "unknown_error") if isinstance(payload, dict) else "invalid_response"
+        raise WorkspaceValidationError(f"Slack API error: {error}")
+    return payload
+
+
+def _registered_slack_channels(workspace_id: str) -> list[str]:
+    workspace = _STORE.get_workspace(workspace_id)
+    return [
+        source["channel"]
+        for source in workspace["sources"]
+        if source.get("source_type") == "connector"
+        and source.get("connector") == "slack"
+        and source.get("channel")
+    ]
+
+
+def _slack_iso_timestamp(ts: str) -> str | None:
+    try:
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).isoformat().replace("+00:00", "Z")
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+@server.tool()
+def slack_retrieve(
+    workspace_id: str,
+    query: str,
+    channel: str = "",
+    message_limit: int = 50,
+) -> str:
+    """Retrieve task-relevant live Slack messages from one connected channel.
+
+    The tool reads channel metadata and recent history once, ranks messages
+    locally against the task query, and returns a compact evidence bundle.
+    """
+    _require_workspace(workspace_id)
+    if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
+        raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
+    _integer(message_limit, "message_limit", 1, 100)
+
+    channels = _registered_slack_channels(workspace_id)
+    if not channels:
+        raise WorkspaceValidationError("No Slack channel is connected to this workspace.")
+    if channel:
+        normalized = WorkspaceStore._slack_channel(channel)
+        match = next((item for item in channels if item == normalized), None)
+        if not match:
+            raise WorkspaceValidationError("Requested Slack channel is not connected to this workspace.")
+        channel = match
+    elif len(channels) == 1:
+        channel = channels[0]
+    else:
+        raise WorkspaceValidationError("channel is required when multiple Slack channels are connected.")
+
+    cache_key = (workspace_id, channel)
+    snapshot = _SLACK_LIVE_CACHE.get(cache_key)
+    cache_reused = snapshot is not None
+
+    if snapshot is None:
+        def fetch_info():
+            try:
+                return _slack_api("conversations.info", channel=channel)
+            except WorkspaceValidationError:
+                # Channel metadata is helpful but not required for evidence retrieval.
+                # This keeps the connector usable with history-only read scopes.
+                return {}
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            info_future = pool.submit(fetch_info)
+            history_future = pool.submit(
+                _slack_api, "conversations.history", channel=channel, limit=message_limit
+            )
+            info = info_future.result()
+            history = history_future.result()
+        conversation = info.get("channel", {}) if isinstance(info, dict) else {}
+        messages = history.get("messages", []) if isinstance(history, dict) else []
+        snapshot = {
+            "conversation": conversation if isinstance(conversation, dict) else {},
+            "messages": messages if isinstance(messages, list) else [],
+        }
+        _SLACK_LIVE_CACHE[cache_key] = snapshot
+
+    terms = _query_terms(query)
+    ranked = []
+    for message in snapshot["messages"]:
+        if not isinstance(message, dict):
+            continue
+        text = message.get("text") or ""
+        subtype = message.get("subtype")
+        if subtype in {"channel_join", "channel_leave"}:
+            continue
+        score = _text_score(text, terms)
+        ranked.append({
+            "ts": message.get("ts"),
+            "datetime": _slack_iso_timestamp(message.get("ts")),
+            "user": message.get("user") or message.get("bot_id") or "",
+            "text": text[:1800],
+            "thread_ts": message.get("thread_ts"),
+            "reply_count": message.get("reply_count", 0),
+            "_score": score,
+        })
+
+    ranked.sort(
+        key=lambda item: (item["_score"], item.get("ts") or ""),
+        reverse=True,
+    )
+    positive = [item for item in ranked if item["_score"] > 0]
+    # Keep the tool result compact. If lexical matching is sparse, retain only a
+    # tiny recent fallback instead of flooding the model with unrelated history.
+    selected = (positive[:12] if positive else ranked[:3])
+    selected = [{k: v for k, v in item.items() if k != "_score"} for item in selected]
+
+    conversation = snapshot["conversation"]
+    normalized_evidence = [
+        make_evidence(
+            evidence_id=f"slack:{channel}:{item.get('ts')}",
+            source_type="slack",
+            source_ref=f"{channel}/{item.get('ts')}",
+            kind="message",
+            content=item.get("text") or "(message text unavailable)",
+            timestamp=item.get("datetime"),
+            author=item.get("user") or None,
+            metadata={
+                "channel": channel,
+                "channel_name": conversation.get("name"),
+                "ts": item.get("ts"),
+                "thread_ts": item.get("thread_ts"),
+                "reply_count": item.get("reply_count", 0),
+            },
+        )
+        for item in selected
+        if item.get("text")
+    ]
+    return json.dumps({
+        "workspace_id": workspace_id,
+        "channel": channel,
+        "channel_name": conversation.get("name"),
+        "channel_topic": ((conversation.get("topic") or {}).get("value")),
+        "channel_purpose": ((conversation.get("purpose") or {}).get("value")),
+        "query": query,
+        "messages": selected,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
+        "evidence": normalized_evidence,
+        "history_count": len(snapshot["messages"]),
+        "cache_reused": cache_reused,
+    }, ensure_ascii=False, separators=(",", ":"))
+
+
+# --- Live Notion connector helpers ---
+
+_NOTION_LIVE_CACHE: dict[tuple[str, str], dict[str, Any]] = {}
+_NOTION_VERSION = "2026-03-11"
+
+
+def _notion_token() -> str:
+    token = os.environ.get("NOTION_API_KEY", "").strip()
+    if not token or token.startswith("${"):
+        raise WorkspaceValidationError("Live Notion is not configured on this server.")
+    return token
+
+
+def _notion_api(path: str) -> dict[str, Any]:
+    request = urllib.request.Request(
+        "https://api.notion.com/v1" + path,
+        headers={
+            "Authorization": f"Bearer {_notion_token()}",
+            "Notion-Version": _NOTION_VERSION,
+            "Accept": "application/json",
+            "User-Agent": "ContextPack/0.1",
+        },
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("message", "")
+        except Exception:
+            detail = ""
+        message = f"Notion API returned HTTP {exc.code}"
+        if detail:
+            message += f": {detail}"
+        raise WorkspaceValidationError(message) from exc
+    except (urllib.error.URLError, TimeoutError, ValueError, UnicodeError) as exc:
+        raise WorkspaceValidationError(f"Notion API request failed: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise WorkspaceValidationError("Notion API returned an invalid response.")
+    return payload
+
+
+def _registered_notion_pages(workspace_id: str) -> list[str]:
+    workspace = _STORE.get_workspace(workspace_id)
+    return [
+        source["page_id"]
+        for source in workspace["sources"]
+        if source.get("source_type") == "connector"
+        and source.get("connector") == "notion"
+        and source.get("page_id")
+    ]
+
+
+def _rich_text_plain(items: Any) -> str:
+    if not isinstance(items, list):
+        return ""
+    return "".join(
+        item.get("plain_text") or ""
+        for item in items
+        if isinstance(item, dict)
+    ).strip()
+
+
+def _notion_page_title(page: dict[str, Any]) -> str:
+    properties = page.get("properties", {})
+    if isinstance(properties, dict):
+        for prop in properties.values():
+            if isinstance(prop, dict) and prop.get("type") == "title":
+                title = _rich_text_plain(prop.get("title"))
+                if title:
+                    return title
+    return "Untitled"
+
+
+def _notion_block_text(block: dict[str, Any]) -> str:
+    block_type = block.get("type")
+    value = block.get(block_type, {}) if isinstance(block_type, str) else {}
+    if not isinstance(value, dict):
+        return ""
+    if block_type in {"child_page", "child_database"}:
+        return str(value.get("title") or "").strip()
+    if block_type == "table_row":
+        cells = value.get("cells", [])
+        if isinstance(cells, list):
+            return " | ".join(_rich_text_plain(cell) for cell in cells).strip(" |")
+    for field in ("rich_text", "caption"):
+        text = _rich_text_plain(value.get(field))
+        if text:
+            return text
+    return ""
+
+
+def _notion_children(block_id: str, *, max_blocks: int = 220, max_depth: int = 4) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+
+    def walk(parent_id: str, depth: int) -> None:
+        if depth > max_depth or len(records) >= max_blocks:
+            return
+        cursor: str | None = None
+        while len(records) < max_blocks:
+            query = f"/blocks/{urllib.parse.quote(parent_id)}/children?page_size=100"
+            if cursor:
+                query += "&start_cursor=" + urllib.parse.quote(cursor)
+            payload = _notion_api(query)
+            results = payload.get("results", [])
+            if not isinstance(results, list):
+                return
+            for block in results:
+                if not isinstance(block, dict):
+                    continue
+                records.append({
+                    "id": block.get("id"),
+                    "type": block.get("type"),
+                    "text": _notion_block_text(block),
+                    "last_edited_time": block.get("last_edited_time"),
+                    "depth": depth,
+                })
+                if block.get("has_children") and len(records) < max_blocks:
+                    block_id_value = block.get("id")
+                    if isinstance(block_id_value, str):
+                        walk(block_id_value, depth + 1)
+                if len(records) >= max_blocks:
+                    return
+            if not payload.get("has_more") or not payload.get("next_cursor"):
+                return
+            cursor = payload.get("next_cursor")
+
+    walk(block_id, 0)
+    return records
+
+
+@server.tool()
+def notion_retrieve(
+    workspace_id: str,
+    query: str,
+    page_id: str = "",
+) -> str:
+    """Retrieve compact live Notion evidence from one connected page.
+
+    The tool reads page metadata and recursive block content, then performs
+    local task-conditioned ranking so the model receives a bounded evidence
+    bundle rather than the complete page tree.
+    """
+    _require_workspace(workspace_id)
+    if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
+        raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
+
+    pages = _registered_notion_pages(workspace_id)
+    if not pages:
+        raise WorkspaceValidationError("No Notion page is connected to this workspace.")
+    if page_id:
+        normalized = WorkspaceStore._notion_page_id(page_id)
+        match = next((item for item in pages if item.casefold() == normalized.casefold()), None)
+        if not match:
+            raise WorkspaceValidationError("Requested Notion page is not connected to this workspace.")
+        page_id = match
+    elif len(pages) == 1:
+        page_id = pages[0]
+    else:
+        raise WorkspaceValidationError("page_id is required when multiple Notion pages are connected.")
+
+    cache_key = (workspace_id, page_id.casefold())
+    snapshot = _NOTION_LIVE_CACHE.get(cache_key)
+    cache_reused = snapshot is not None
+
+    if snapshot is None:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            page_future = pool.submit(_notion_api, f"/pages/{urllib.parse.quote(page_id)}")
+            blocks_future = pool.submit(_notion_children, page_id)
+            page = page_future.result()
+            blocks = blocks_future.result()
+        snapshot = {"page": page, "blocks": blocks}
+        _NOTION_LIVE_CACHE[cache_key] = snapshot
+
+    terms = _query_terms(query)
+    blocks = snapshot["blocks"]
+    ranked = []
+    for index, block in enumerate(blocks):
+        text = block.get("text") or ""
+        if not text:
+            continue
+        score = _text_score(text, terms)
+        ranked.append({**block, "_score": score, "_index": index})
+
+    ranked.sort(key=lambda item: (item["_score"], -item["_index"]), reverse=True)
+    selected_indexes = {item["_index"] for item in ranked[:18]}
+    # Keep a little leading context even when lexical terms are sparse.
+    selected_indexes.update(
+        index for index, block in enumerate(blocks[:8])
+        if block.get("text")
+    )
+    selected = [
+        {
+            "id": block.get("id"),
+            "type": block.get("type"),
+            "text": block.get("text"),
+            "last_edited_time": block.get("last_edited_time"),
+            "depth": block.get("depth"),
+        }
+        for index, block in enumerate(blocks)
+        if index in selected_indexes and block.get("text")
+    ][:24]
+
+    page = snapshot["page"]
+    page_title = _notion_page_title(page)
+    normalized_evidence = [
+        make_evidence(
+            evidence_id=f"notion:{page_id}:{block.get('id')}",
+            source_type="notion",
+            source_ref=f"{page_id}#{block.get('id')}",
+            kind=block.get("type") or "block",
+            content=block.get("text") or "(block text unavailable)",
+            timestamp=block.get("last_edited_time"),
+            metadata={
+                "page_id": page_id,
+                "page_title": page_title,
+                "page_url": page.get("url"),
+                "depth": block.get("depth"),
+            },
+        )
+        for block in selected
+        if block.get("text")
+    ]
+    return json.dumps({
+        "workspace_id": workspace_id,
+        "page_id": page_id,
+        "page_title": page_title,
+        "page_url": page.get("url"),
+        "created_time": page.get("created_time"),
+        "last_edited_time": page.get("last_edited_time"),
+        "query": query,
+        "blocks": selected,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
+        "evidence": normalized_evidence,
+        "total_blocks_read": len(blocks),
         "cache_reused": cache_reused,
     }, ensure_ascii=False, separators=(",", ":"))
 
@@ -452,9 +1001,29 @@ def demo_context_retrieve(query: str) -> str:
         },
     ]
 
+    evidence = [
+        {
+            **item,
+            **make_evidence(
+                evidence_id=f"demo:{item.get('source')}:{index}",
+                source_type=item.get("source") or "demo",
+                source_ref=item.get("ref") or f"demo-{index}",
+                kind="claim",
+                content=item.get("claim") or "(claim unavailable)",
+                timestamp=item.get("date"),
+                metadata={
+                    key: value for key, value in item.items()
+                    if key not in {"source", "ref", "date", "claim"}
+                },
+            ),
+        }
+        for index, item in enumerate(evidence)
+    ]
+
     return json.dumps({
         "workspace_id": "demo",
         "query": query,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
         "evidence": evidence,
         "rules": {
             "preserve_conflicts": True,
@@ -777,12 +1346,219 @@ def document_retrieve(
             "truncated": fetched["truncated"],
         })
 
+    normalized_evidence = [
+        make_evidence(
+            evidence_id=f"document:{item['document_id']}:{item['offset']}",
+            source_type="document",
+            source_ref=f"{item['title']}#offset={item['offset']}",
+            kind="document_excerpt",
+            content=item["body"],
+            timestamp=item.get("timestamp"),
+            metadata={
+                "document_id": item["document_id"],
+                "title": item["title"],
+                "score": item["score"],
+                "offset": item["offset"],
+                "next_offset": item["next_offset"],
+                "truncated": item["truncated"],
+            },
+        )
+        for item in evidence
+    ]
+
     return json.dumps({
         "workspace_id": workspace_id,
         "query": query,
         "results": evidence,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
+        "evidence": normalized_evidence,
         "total_matches": searched["total_matches"],
     }, ensure_ascii=False, indent=2)
+
+
+@server.tool()
+def workspace_retrieve(
+    workspace_id: str,
+    query: str,
+    source_types: str = "",
+) -> str:
+    """Retrieve task evidence from multiple registered source kinds in one MCP call.
+
+    source_types is an optional comma-separated allowlist using:
+    github, slack, notion, document. If omitted, all registered source kinds in
+    the current workspace are retrieved. Each registered source is queried at
+    most once and independent sources are fetched in parallel.
+    """
+    aggregate_started = time.perf_counter()
+    _require_workspace(workspace_id)
+    if not isinstance(query, str) or not query.strip() or len(query) > 500 or "\x00" in query:
+        raise WorkspaceValidationError("query must be non-empty text of at most 500 characters.")
+    if not isinstance(source_types, str) or "\x00" in source_types:
+        raise WorkspaceValidationError("source_types must be comma-separated text.")
+
+    workspace = _STORE.get_workspace(workspace_id)
+    available: dict[str, list[str]] = {
+        "github": [
+            source["repository"]
+            for source in workspace["sources"]
+            if source.get("source_type") == "connector"
+            and source.get("connector") == "github"
+            and source.get("repository")
+        ],
+        "slack": [
+            source["channel"]
+            for source in workspace["sources"]
+            if source.get("source_type") == "connector"
+            and source.get("connector") == "slack"
+            and source.get("channel")
+        ],
+        "notion": [
+            source["page_id"]
+            for source in workspace["sources"]
+            if source.get("source_type") == "connector"
+            and source.get("connector") == "notion"
+            and source.get("page_id")
+        ],
+        "document": [
+            source["id"]
+            for source in workspace["sources"]
+            if source.get("source_type") == "upload"
+        ],
+    }
+
+    supported = {"github", "slack", "notion", "document"}
+    if source_types.strip():
+        requested = [
+            item.strip().casefold()
+            for item in source_types.split(",")
+            if item.strip()
+        ]
+        if not requested:
+            raise WorkspaceValidationError("source_types must contain at least one source kind.")
+        if any(item not in supported for item in requested):
+            raise WorkspaceValidationError(
+                "source_types may only contain github, slack, notion, document."
+            )
+        requested = list(dict.fromkeys(requested))
+    else:
+        requested = [kind for kind in ("github", "slack", "notion", "document") if available[kind]]
+
+    if not requested:
+        raise WorkspaceValidationError("No retrievable Source is registered in this workspace.")
+    unavailable = [kind for kind in requested if not available[kind]]
+    if unavailable:
+        raise WorkspaceValidationError(
+            "Requested source type is not registered in this workspace: " + ", ".join(unavailable)
+        )
+
+    jobs: list[tuple[str, str, Any]] = []
+    for kind in requested:
+        if kind == "github":
+            for repository in available[kind]:
+                jobs.append((
+                    kind,
+                    repository,
+                    lambda repository=repository: github_retrieve(
+                        workspace_id, query, repository=repository
+                    ),
+                ))
+        elif kind == "slack":
+            for channel in available[kind]:
+                jobs.append((
+                    kind,
+                    channel,
+                    lambda channel=channel: slack_retrieve(
+                        workspace_id, query, channel=channel
+                    ),
+                ))
+        elif kind == "notion":
+            for page_id in available[kind]:
+                jobs.append((
+                    kind,
+                    page_id,
+                    lambda page_id=page_id: notion_retrieve(
+                        workspace_id, query, page_id=page_id
+                    ),
+                ))
+        elif kind == "document":
+            # document_retrieve already searches across all uploaded documents.
+            jobs.append((
+                kind,
+                "uploaded-documents",
+                lambda: document_retrieve(workspace_id, query),
+            ))
+
+    evidence: list[dict[str, Any]] = []
+    retrievals: list[dict[str, Any]] = []
+
+    def run_job(job: tuple[str, str, Any]) -> tuple[str, str, dict[str, Any] | None, str | None, float]:
+        kind, source_ref, fn = job
+        started = time.perf_counter()
+        try:
+            payload = json.loads(fn())
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            return kind, source_ref, payload if isinstance(payload, dict) else {}, None, duration_ms
+        except (WorkspaceValidationError, ValueError, TypeError, json.JSONDecodeError) as exc:
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            return kind, source_ref, None, str(exc), duration_ms
+
+    source_timings: dict[str, float] = {}
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(jobs)))) as pool:
+        for kind, source_ref, payload, error, duration_ms in pool.map(run_job, jobs):
+            source_timings[kind] = max(source_timings.get(kind, 0.0), duration_ms)
+            if error is not None:
+                retrievals.append({
+                    "source_type": kind,
+                    "source_ref": source_ref,
+                    "status": "error",
+                    "evidence_count": 0,
+                    "duration_ms": duration_ms,
+                    "error": error,
+                })
+                continue
+            items = payload.get("evidence", []) if isinstance(payload, dict) else []
+            items = [item for item in items if isinstance(item, dict)]
+            evidence.extend(items)
+            retrievals.append({
+                "source_type": kind,
+                "source_ref": source_ref,
+                "status": "ok",
+                "evidence_count": len(items),
+                "duration_ms": duration_ms,
+            })
+
+    aggregate_finished = time.perf_counter()
+    timing_ms = {
+        "aggregate": round((aggregate_finished - aggregate_started) * 1000, 2),
+        **source_timings,
+    }
+
+    run_id = os.environ.get("CONTEXTPACK_RUN_ID", "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{8,80}", run_id):
+        timing_path = pathlib.Path("/tmp") / f"contextpack-retrieval-{run_id}.json"
+        timing_sidecar = {
+            **timing_ms,
+            "_retrieval_started_perf": aggregate_started,
+            "_retrieval_finished_perf": aggregate_finished,
+        }
+        try:
+            timing_path.write_text(
+                json.dumps(timing_sidecar, ensure_ascii=False, separators=(",", ":")),
+                encoding="utf-8",
+            )
+        except OSError:
+            # Timing is diagnostic only; retrieval success must not depend on it.
+            pass
+
+    return json.dumps({
+        "workspace_id": workspace_id,
+        "query": query,
+        "requested_source_types": requested,
+        "evidence_schema_version": EVIDENCE_SCHEMA_VERSION,
+        "evidence": evidence,
+        "retrievals": retrievals,
+        "timing_ms": timing_ms,
+    }, ensure_ascii=False, separators=(",", ":"))
 
 
 @server.tool()

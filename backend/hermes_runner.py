@@ -1,10 +1,14 @@
+import json
 import os
 import re
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
+
+from backend.handoff_policy import sanitize_handoff
 
 
 ANSI_RE = re.compile(
@@ -27,11 +31,13 @@ class HermesRunResult:
     skill_used: bool
     mcp_tool_calls: int
     mcp_tools: list[str]
+    retrieval_timing_ms: dict[str, float] = field(default_factory=dict)
 
 
 class CliHermesRunner:
     def __init__(self, timeout_sec: int = 300):
         self.timeout_sec = timeout_sec
+        self.max_turns = max(4, int(os.getenv("HERMES_MAX_TURNS", "8")))
         self.project_root = Path(__file__).resolve().parent
 
         self.hermes_bin = (
@@ -50,6 +56,8 @@ class CliHermesRunner:
         prompt: str,
         workspace_id: str | None = None,
         github_enabled: bool = False,
+        preloaded_mcp_tools: list[str] | None = None,
+        preloaded_retrieval_timing_ms: dict[str, float] | None = None,
     ) -> HermesRunResult:
         # Do not pass --toolsets here.
         #
@@ -65,15 +73,19 @@ class CliHermesRunner:
             "--skills",
             "context-pack",
             "--max-turns",
-            "8",
+            str(self.max_turns),
             "-q",
             prompt,
         ]
 
         env = os.environ.copy()
+        run_id = uuid.uuid4().hex
+        env["CONTEXTPACK_RUN_ID"] = run_id
 
         if workspace_id:
             env["CONTEXTPACK_WORKSPACE_ID"] = workspace_id
+        if preloaded_mcp_tools:
+            env["CONTEXTPACK_PRELOADED_EVIDENCE"] = "1"
 
         started = time.perf_counter()
 
@@ -96,11 +108,58 @@ class CliHermesRunner:
                 f"{self.timeout_sec}s"
             ) from exc
 
-        duration = time.perf_counter() - started
+        finished = time.perf_counter()
+        duration = finished - started
+        retrieval_timing_ms = dict(preloaded_retrieval_timing_ms or {})
+        if not retrieval_timing_ms:
+            retrieval_timing_ms = self._read_retrieval_timing(
+                run_id,
+                run_started_perf=started,
+                run_finished_perf=finished,
+            )
+
+        # 실제 Handoff 후보는 stdout에서 추출. Hermes may return code 1
+        # after reaching its iteration budget even though a complete final
+        # Handoff was already emitted.
+        clean_stdout = self._clean_output(
+            proc.stdout or ""
+        )
+        clean_combined = self._clean_output(
+            (proc.stdout or "") + "\n" + (proc.stderr or "")
+        )
 
         if proc.returncode != 0:
             stderr = (proc.stderr or "").strip()
             stdout = (proc.stdout or "").strip()
+            budget_reached = bool(re.search(
+                r"(?i)iteration budget reached|response may be incomplete",
+                stdout + "\n" + stderr,
+            ))
+            recovered_handoff = ""
+            if budget_reached:
+                recovered_handoff = (
+                    self._extract_handoff(clean_stdout)
+                    or self._extract_handoff(clean_combined)
+                )
+            recovered_trace = clean_combined
+            recovered_calls = self._count_mcp_calls(recovered_trace)
+            preloaded_tools = list(preloaded_mcp_tools or [])
+            effective_calls = recovered_calls + len(preloaded_tools)
+            if recovered_handoff and effective_calls > 0:
+                recovered_tools = self._extract_mcp_tools(
+                    recovered_trace,
+                    handoff=recovered_handoff,
+                    retrieval_timing_ms=retrieval_timing_ms,
+                )
+                recovered_tools = list(dict.fromkeys(preloaded_tools + recovered_tools))
+                return HermesRunResult(
+                    duration_sec=round(duration, 2),
+                    handoff=recovered_handoff,
+                    skill_used=True,
+                    mcp_tool_calls=effective_calls,
+                    mcp_tools=recovered_tools,
+                    retrieval_timing_ms=retrieval_timing_ms,
+                )
 
             raise HermesExecutionError(
                 f"Hermes exited with code "
@@ -109,20 +168,12 @@ class CliHermesRunner:
                 f"stdout tail:\n{stdout[-1500:]}"
             )
 
-        # 실제 Handoff 후보는 stdout에서 추출
-        clean_stdout = self._clean_output(
-            proc.stdout or ""
-        )
-
         # MCP trace는 stdout / stderr 양쪽에서 나올 수 있음
-        trace_text = self._clean_output(
-            (proc.stdout or "")
-            + "\n"
-            + (proc.stderr or "")
-        )
+        trace_text = clean_combined
 
-        handoff = self._extract_handoff(
-            clean_stdout
+        handoff = (
+            self._extract_handoff(clean_stdout)
+            or self._extract_handoff(clean_combined)
         )
 
         if not handoff:
@@ -150,9 +201,11 @@ class CliHermesRunner:
                 if missing
                 else " All section headers were detected; output contained invalid runtime/tool trace ordering."
             )
+            tail = clean_combined[-1800:].strip()
             raise HermesExecutionError(
                 "Hermes succeeded but Handoff Context could not be extracted."
                 + detail
+                + ("\nOutput tail:\n" + tail if tail else "")
             )
 
         # 이 값은 stdout에서 activation을 추측하는 값이 아니라
@@ -163,8 +216,15 @@ class CliHermesRunner:
             and "context-pack" in cmd
         )
 
-        mcp_tools = self._extract_mcp_tools(trace_text)
-        mcp_tool_calls = len(mcp_tools)
+        trace_calls = self._count_mcp_calls(trace_text)
+        preloaded_tools = list(preloaded_mcp_tools or [])
+        mcp_tool_calls = trace_calls + len(preloaded_tools)
+        mcp_tools = self._extract_mcp_tools(
+            trace_text,
+            handoff=handoff,
+            retrieval_timing_ms=retrieval_timing_ms,
+        )
+        mcp_tools = list(dict.fromkeys(preloaded_tools + mcp_tools))
 
         if mcp_tool_calls == 0:
             raise HermesExecutionError(
@@ -178,7 +238,57 @@ class CliHermesRunner:
             skill_used=skill_enabled,
             mcp_tool_calls=mcp_tool_calls,
             mcp_tools=mcp_tools,
+            retrieval_timing_ms=retrieval_timing_ms,
         )
+
+    @staticmethod
+    def _read_retrieval_timing(
+        run_id: str,
+        run_started_perf: float | None = None,
+        run_finished_perf: float | None = None,
+    ) -> dict[str, float]:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{8,80}", run_id):
+            return {}
+        path = Path("/tmp") / f"contextpack-retrieval-{run_id}.json"
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(raw, dict):
+                return {}
+
+            public = {
+                str(key): round(float(value), 2)
+                for key, value in raw.items()
+                if not str(key).startswith("_")
+                and isinstance(value, (int, float))
+                and value >= 0
+            }
+
+            retrieval_started = raw.get("_retrieval_started_perf")
+            retrieval_finished = raw.get("_retrieval_finished_perf")
+            if (
+                isinstance(run_started_perf, (int, float))
+                and isinstance(run_finished_perf, (int, float))
+                and isinstance(retrieval_started, (int, float))
+                and isinstance(retrieval_finished, (int, float))
+                and run_started_perf <= retrieval_started <= retrieval_finished <= run_finished_perf
+            ):
+                public["before_retrieval"] = round(
+                    (retrieval_started - run_started_perf) * 1000,
+                    2,
+                )
+                public["after_retrieval"] = round(
+                    (run_finished_perf - retrieval_finished) * 1000,
+                    2,
+                )
+
+            return public
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return {}
+        finally:
+            try:
+                path.unlink()
+            except OSError:
+                pass
 
     @staticmethod
     def _clean_output(text: str) -> str:
@@ -233,17 +343,82 @@ class CliHermesRunner:
         )
 
     @staticmethod
-    def _extract_mcp_tools(text: str) -> list[str]:
-        """Return MCP tool names from Hermes trace events in call order."""
-        return re.findall(
-            r"(?mi)^.*⚡\s+(mcp(?:__|_)[A-Za-z0-9_.:-]+)",
+    def _extract_mcp_tools(
+        text: str,
+        handoff: str = "",
+        retrieval_timing_ms: dict[str, float] | None = None,
+    ) -> list[str]:
+        """Return tools from actual Hermes trace events.
+
+        Never infer tools from the entire stdout because the echoed runtime
+        prompt may itself contain MCP examples. If Hermes truncates a trace
+        event to `mcp__mabc`, first use the retrieval timing side-channel when
+        it proves the aggregate workspace path was executed; otherwise recover
+        the leaf only from the already-extracted final Handoff SOURCE MAP.
+        """
+        trace = re.findall(
+            r"(?mi)^.*⚡\s+(mcp[^\s(]+)",
             text,
         )
+        trace = list(dict.fromkeys(name.rstrip(",:;") for name in trace))
+
+        full_trace = [
+            name for name in trace
+            if re.match(r"(?i)^mcp__[A-Za-z0-9_]+__[A-Za-z0-9_]+$", name)
+        ]
+        if full_trace:
+            return full_trace
+
+        if retrieval_timing_ms and "aggregate" in retrieval_timing_ms:
+            return ["mcp__mabc_sources__workspace_retrieve"]
+
+        if handoff:
+            full_handoff = re.findall(
+                r"(?i)\b(mcp__[A-Za-z0-9_]+__[A-Za-z0-9_]+)\b",
+                handoff,
+            )
+            if full_handoff:
+                return list(dict.fromkeys(full_handoff))
+
+            aggregate_leafs = re.findall(
+                r"(?i)\b(workspace_retrieve|demo_context_retrieve|document_retrieve|github_retrieve|slack_retrieve|notion_retrieve)\b",
+                handoff,
+            )
+            aggregate_leafs = list(dict.fromkeys(name.lower() for name in aggregate_leafs))
+            if len(aggregate_leafs) == 1:
+                return [f"mcp__mabc_sources__{aggregate_leafs[0]}"]
+
+        return trace
 
     @staticmethod
     def _count_mcp_calls(text: str) -> int:
-        """Backward-compatible count helper used by tests."""
-        return len(CliHermesRunner._extract_mcp_tools(text))
+        """Count MCP trace events without double-counting truncated/full mirrors."""
+        full = re.findall(
+            r"(?mi)^.*⚡\s+mcp__[A-Za-z0-9_]+__[A-Za-z0-9_]+\b",
+            text,
+        )
+        if full:
+            return len(full)
+        return len(
+            re.findall(
+                r"(?mi)^.*⚡\s+mcp(?:__|_)",
+                text,
+            )
+        )
+
+    @staticmethod
+    def _sanitize_handoff(handoff: str) -> str:
+        """Apply the shared connector-neutral Handoff policy."""
+        return sanitize_handoff(handoff)
+
+    @staticmethod
+    def _is_placeholder_handoff(handoff: str) -> bool:
+        """Reject a copied output template with no real task/evidence content."""
+        placeholder_lines = re.findall(
+            r"(?mi)^\s*-\s*(?:\.\.\.|source|<[^>]+>)\s*$",
+            handoff,
+        )
+        return len(placeholder_lines) >= 3
 
     @staticmethod
     def _extract_handoff(text: str) -> str:
@@ -411,7 +586,7 @@ class CliHermesRunner:
 
             result = "\n".join(lines).strip()
 
-            if result:
-                return result
+            if result and not CliHermesRunner._is_placeholder_handoff(result):
+                return CliHermesRunner._sanitize_handoff(result)
 
         return ""

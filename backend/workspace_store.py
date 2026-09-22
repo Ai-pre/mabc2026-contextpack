@@ -239,6 +239,86 @@ class WorkspaceStore:
             self._write_manifest(manifest)
             return source
 
+
+    @staticmethod
+    def _slack_channel(value: str) -> str:
+        if not isinstance(value, str) or "\x00" in value:
+            raise WorkspaceValidationError("Slack channel must be text.")
+        value = value.strip()
+        match = re.search(r"/archives/([CG][A-Z0-9]{8,20})(?:[/?#]|$)", value, flags=re.I)
+        if match:
+            value = match.group(1)
+        value = value.upper()
+        if not re.fullmatch(r"[CG][A-Z0-9]{8,20}", value):
+            raise WorkspaceValidationError(
+                "Slack channel must be a channel ID (for example C012ABCDEF) or a Slack channel URL."
+            )
+        return value
+
+    def add_slack_source(self, workspace_id: str, channel: str) -> dict:
+        with self._lock:
+            manifest = self.get_workspace(workspace_id)
+            if manifest["is_demo"]:
+                raise WorkspaceValidationError("Live Slack connections are not added to the demo workspace.")
+            channel = self._slack_channel(channel)
+            for existing in manifest["sources"]:
+                if existing.get("source_type") == "connector" and existing.get("connector") == "slack" \
+                        and existing.get("channel") == channel:
+                    raise WorkspaceValidationError("This Slack channel is already connected.")
+            source = {
+                "id": f"src_{uuid4().hex}",
+                "source_type": "connector",
+                "connector": "slack",
+                "title": f"Slack · {channel}",
+                "channel": channel,
+                "created_at": _now(),
+            }
+            manifest["sources"].append(source)
+            manifest["updated_at"] = source["created_at"]
+            self._write_manifest(manifest)
+            return source
+
+    @staticmethod
+    def _notion_page_id(value: str) -> str:
+        if not isinstance(value, str) or "\x00" in value:
+            raise WorkspaceValidationError("Notion page must be text.")
+        value = value.strip()
+        compact = value.replace("-", "")
+        if re.fullmatch(r"[0-9a-fA-F]{32}", compact):
+            raw = compact.lower()
+        else:
+            parsed = value.split("?", 1)[0].split("#", 1)[0]
+            matches = re.findall(r"([0-9a-fA-F]{32})(?:$|[^0-9a-fA-F])", parsed.replace("-", ""))
+            if not matches:
+                raise WorkspaceValidationError(
+                    "Notion page must be a page ID or a Notion page URL containing a 32-character page ID."
+                )
+            raw = matches[-1].lower()
+        return f"{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:]}"
+
+    def add_notion_source(self, workspace_id: str, page: str) -> dict:
+        with self._lock:
+            manifest = self.get_workspace(workspace_id)
+            if manifest["is_demo"]:
+                raise WorkspaceValidationError("Live Notion connections are not added to the demo workspace.")
+            page_id = self._notion_page_id(page)
+            for existing in manifest["sources"]:
+                if existing.get("source_type") == "connector" and existing.get("connector") == "notion" \
+                        and existing.get("page_id", "").casefold() == page_id.casefold():
+                    raise WorkspaceValidationError("This Notion page is already connected.")
+            source = {
+                "id": f"src_{uuid4().hex}",
+                "source_type": "connector",
+                "connector": "notion",
+                "title": f"Notion · {page_id[:8]}",
+                "page_id": page_id,
+                "created_at": _now(),
+            }
+            manifest["sources"].append(source)
+            manifest["updated_at"] = source["created_at"]
+            self._write_manifest(manifest)
+            return source
+
     @staticmethod
     def _filename(filename: str) -> str:
         if not isinstance(filename, str) or any(ord(char) < 32 for char in filename):

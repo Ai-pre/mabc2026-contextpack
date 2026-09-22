@@ -255,3 +255,10 @@
   font-weight: 600;
   color: var(--text-muted);
 }
+
+
+.result-tools > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
