@@ -56,6 +56,8 @@ class CliHermesRunner:
         prompt: str,
         workspace_id: str | None = None,
         github_enabled: bool = False,
+        preloaded_mcp_tools: list[str] | None = None,
+        preloaded_retrieval_timing_ms: dict[str, float] | None = None,
     ) -> HermesRunResult:
         # Do not pass --toolsets here.
         #
@@ -82,6 +84,8 @@ class CliHermesRunner:
 
         if workspace_id:
             env["CONTEXTPACK_WORKSPACE_ID"] = workspace_id
+        if preloaded_mcp_tools:
+            env["CONTEXTPACK_PRELOADED_EVIDENCE"] = "1"
 
         started = time.perf_counter()
 
@@ -106,11 +110,13 @@ class CliHermesRunner:
 
         finished = time.perf_counter()
         duration = finished - started
-        retrieval_timing_ms = self._read_retrieval_timing(
-            run_id,
-            run_started_perf=started,
-            run_finished_perf=finished,
-        )
+        retrieval_timing_ms = dict(preloaded_retrieval_timing_ms or {})
+        if not retrieval_timing_ms:
+            retrieval_timing_ms = self._read_retrieval_timing(
+                run_id,
+                run_started_perf=started,
+                run_finished_perf=finished,
+            )
 
         # 실제 Handoff 후보는 stdout에서 추출. Hermes may return code 1
         # after reaching its iteration budget even though a complete final
@@ -137,17 +143,20 @@ class CliHermesRunner:
                 )
             recovered_trace = clean_combined
             recovered_calls = self._count_mcp_calls(recovered_trace)
-            if recovered_handoff and recovered_calls > 0:
+            preloaded_tools = list(preloaded_mcp_tools or [])
+            effective_calls = recovered_calls + len(preloaded_tools)
+            if recovered_handoff and effective_calls > 0:
                 recovered_tools = self._extract_mcp_tools(
                     recovered_trace,
                     handoff=recovered_handoff,
                     retrieval_timing_ms=retrieval_timing_ms,
                 )
+                recovered_tools = list(dict.fromkeys(preloaded_tools + recovered_tools))
                 return HermesRunResult(
                     duration_sec=round(duration, 2),
                     handoff=recovered_handoff,
                     skill_used=True,
-                    mcp_tool_calls=recovered_calls,
+                    mcp_tool_calls=effective_calls,
                     mcp_tools=recovered_tools,
                     retrieval_timing_ms=retrieval_timing_ms,
                 )
@@ -207,12 +216,15 @@ class CliHermesRunner:
             and "context-pack" in cmd
         )
 
-        mcp_tool_calls = self._count_mcp_calls(trace_text)
+        trace_calls = self._count_mcp_calls(trace_text)
+        preloaded_tools = list(preloaded_mcp_tools or [])
+        mcp_tool_calls = trace_calls + len(preloaded_tools)
         mcp_tools = self._extract_mcp_tools(
             trace_text,
             handoff=handoff,
             retrieval_timing_ms=retrieval_timing_ms,
         )
+        mcp_tools = list(dict.fromkeys(preloaded_tools + mcp_tools))
 
         if mcp_tool_calls == 0:
             raise HermesExecutionError(
