@@ -134,6 +134,17 @@ class DocumentMcpTests(unittest.TestCase):
             ("workspace_retrieve",),
         )
 
+    def test_scoped_server_advertises_no_tools_for_preloaded_evidence(self):
+        workspace = {
+            "is_demo": False,
+            "sources": [
+                {"source_type": "connector", "connector": "github", "repository": "owner/repo"},
+                {"source_type": "connector", "connector": "slack", "channel": "C012ABCDEF"},
+            ],
+        }
+        with patch.dict(os.environ, {"CONTEXTPACK_PRELOADED_EVIDENCE": "1"}):
+            self.assertEqual(scoped_sources._tool_names_for_workspace(workspace), ())
+
     def test_scoped_server_keeps_single_source_surface(self):
         slack_only = {
             "is_demo": False,
