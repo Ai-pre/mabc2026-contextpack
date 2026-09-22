@@ -192,12 +192,75 @@ class AnalysisTests(unittest.TestCase):
         self.assertIn("MUST KNOW 최대 6개", skill_text)
         self.assertIn("SOURCE MAP은 실제 사용한 핵심 Evidence", skill_text)
 
+    def test_fast_path_source_types_prefers_explicit_provider_names(self):
+        workspace_id = self.store.create_workspace("GitHub Slack Notion")["workspace_id"]
+        self.store.add_github_source(workspace_id, "owner/repo")
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+        self.store.add_notion_source(workspace_id, "12345678-1234-1234-1234-123456789abc")
+        workspace = self.store.get_workspace(workspace_id)
+        self.assertEqual(
+            api._fast_path_source_types("GitHub와 Slack의 배포 결정을 정리", workspace),
+            ["github", "slack"],
+        )
+        self.assertEqual(
+            api._fast_path_source_types("최근 프로젝트 결정을 정리", workspace),
+            ["github", "slack", "notion"],
+        )
+
+    def test_multi_source_fast_path_prefetches_mcp_then_runs_one_inference(self):
+        workspace_id = self.store.create_workspace("GitHub + Slack fast")["workspace_id"]
+        self.store.add_github_source(workspace_id, "Ai-pre/mabc2026-contextpack")
+        self.store.add_slack_source(workspace_id, "C012ABCDEF")
+        payload = {
+            "evidence": [{
+                "evidence_id": "github:repo:pr:1",
+                "source_type": "github",
+                "kind": "pull_request",
+                "source_ref": "repo#PR1",
+                "content": "PR1 merged",
+                "timestamp": "2026-09-19T00:00:00Z",
+                "author": None,
+                "metadata": {},
+            }]
+        }
+
+        with patch.object(
+            api,
+            "prefetch_workspace_evidence",
+            return_value=(payload, {"aggregate": 1200.0, "before_retrieval": 200.0}),
+        ) as prefetch, patch.object(api.runner, "run", return_value=self.result) as run:
+            response = self.client.post("/analyze", json={
+                "workspace_id": workspace_id,
+                "role": "Developer",
+                "task": "GitHub와 Slack의 최근 MCP 배포 결정사항 정리",
+            })
+
+        self.assertEqual(response.status_code, 200, response.text)
+        prefetch.assert_called_once_with(
+            workspace_id,
+            "GitHub와 Slack의 최근 MCP 배포 결정사항 정리",
+            "github,slack",
+        )
+        prompt = run.call_args.args[0]
+        self.assertIn("Preloaded MCP evidence", prompt)
+        self.assertIn("PR1 merged", prompt)
+        self.assertIn("Do not call any tool", prompt)
+        self.assertEqual(
+            run.call_args.kwargs["preloaded_mcp_tools"],
+            ["mcp__mabc_sources__workspace_retrieve"],
+        )
+        self.assertEqual(
+            run.call_args.kwargs["preloaded_retrieval_timing_ms"]["aggregate"],
+            1200.0,
+        )
+
     def test_runtime_prompt_hard_stops_with_one_aggregate_call_in_multi_source_workspace(self):
         workspace_id = self.store.create_workspace("GitHub + Slack")["workspace_id"]
         self.store.add_github_source(workspace_id, "Ai-pre/mabc2026-contextpack")
         self.store.add_slack_source(workspace_id, "C012ABCDEF")
 
-        with patch.object(api.runner, "run", return_value=self.result) as run:
+        with patch.dict(os.environ, {"CONTEXTPACK_FAST_PATH": "0"}), \
+             patch.object(api.runner, "run", return_value=self.result) as run:
             response = self.client.post("/analyze", json={
                 "workspace_id": workspace_id,
                 "role": "Backend Developer",
