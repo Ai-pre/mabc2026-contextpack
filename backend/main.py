@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from backend.workspace_store import (
 from backend.document_parser import (
     parse_document, validate_filename, DocumentParseError, MAX_FILE_BYTES,
 )
+from backend.mcp_prefetch import McpPrefetchError, prefetch_workspace_evidence
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
@@ -300,6 +302,70 @@ Task:
 - numbered report, # ContextPack, [SCRIPT_MAP], [호출 MCP tool] 같은 대체 header를 출력하지 않는다. [SOURCE MAP] 뒤에서 즉시 끝낸다.
 """
 
+def _active_source_kinds(workspace: dict) -> list[str]:
+    kinds: list[str] = []
+    sources = workspace.get("sources", [])
+    if any(source.get("source_type") == "connector" and source.get("connector") == "github" for source in sources):
+        kinds.append("github")
+    if any(source.get("source_type") == "connector" and source.get("connector") == "slack" for source in sources):
+        kinds.append("slack")
+    if any(source.get("source_type") == "connector" and source.get("connector") == "notion" for source in sources):
+        kinds.append("notion")
+    if any(source.get("source_type") == "upload" for source in sources):
+        kinds.append("document")
+    return kinds
+
+
+def _fast_path_source_types(task: str, workspace: dict) -> list[str]:
+    """Prefer explicitly named providers; otherwise retrieve all active kinds."""
+    active = _active_source_kinds(workspace)
+    lowered = task.casefold()
+    aliases = {
+        "github": ("github", "깃허브"),
+        "slack": ("slack", "슬랙"),
+        "notion": ("notion", "노션"),
+        "document": ("document", "documents", "문서", "파일"),
+    }
+    explicit = [
+        kind for kind in active
+        if any(alias in lowered for alias in aliases[kind])
+    ]
+    return explicit or active
+
+
+def build_preloaded_agent_prompt(req, payload: dict, source_types: list[str]) -> str:
+    """Build a one-inference prompt from evidence already retrieved through MCP."""
+    evidence = payload.get("evidence", [])
+    compact_evidence = json.dumps(evidence, ensure_ascii=False, separators=(",", ":"))
+    source_types_text = ",".join(source_types)
+    return f"""Role: {req.role}
+
+Task:
+{req.task}
+
+## Preloaded MCP evidence
+workspace_retrieve has already been called exactly once via MCP with source_types={source_types_text}.
+Do not call any tool. Use only the evidence[] below as source material.
+{compact_evidence}
+
+## Handoff contract
+- context-pack Skill is the single source of truth for classification/finality/conflict/stale/missing and the exact 8-section format.
+- Treat tentative→explicit final self-correction as resolved; Source silence is not conflict; only incompatible final↔final belongs in UNRESOLVED CONFLICTS.
+- Do not invent reopening, verification, or missing items not required by the Task.
+- Keep only Project evidence needed by the next Agent; omit runtime scope/retrieval mechanics.
+- SOURCE MAP must include evidence provenance and the callable mcp__mabc_sources__workspace_retrieve(workspace_id, query, source_types).
+- Output only [TASK] → [MUST KNOW] → [CONSTRAINTS] → [USEFUL IF SPACE ALLOWS] → [UNRESOLVED CONFLICTS] → [VERIFY BEFORE USE] → [DO NOT ASSUME] → [SOURCE MAP].
+"""
+
+
+def _fast_path_enabled(workspace: dict) -> bool:
+    if workspace.get("is_demo"):
+        return False
+    if os.environ.get("CONTEXTPACK_FAST_PATH", "1").strip() == "0":
+        return False
+    return len(_active_source_kinds(workspace)) > 1
+
+
 @app.get("/health")
 async def health():
     return {
@@ -311,6 +377,7 @@ async def health():
         ),
         "slack_mcp_enabled": bool(os.environ.get("SLACK_BOT_TOKEN", "").strip()),
         "notion_mcp_enabled": bool(os.environ.get("NOTION_API_KEY", "").strip()),
+        "multi_source_fast_path_enabled": os.environ.get("CONTEXTPACK_FAST_PATH", "1").strip() != "0",
     }
 
 
@@ -326,18 +393,49 @@ async def analyze(req: Request):
         raise HTTPException(status_code=400, detail="Add at least one source to this workspace before building context.")
     workspace = await asyncio.to_thread(workspace_store.update_workspace, workspace_id,
                                         role=request.role, task=request.task)
-    prompt = build_agent_prompt(request, workspace)
+    analysis_started = time.perf_counter()
+    fast_path = _fast_path_enabled(workspace)
 
     try:
-        result = await asyncio.to_thread(
-            runner.run,
-            prompt,
-            workspace_id=workspace_id,
-            github_enabled=any(
-                source.get("source_type") == "connector"
-                and source.get("connector") == "github"
-                for source in workspace["sources"]
-            ),
+        if fast_path:
+            source_types = _fast_path_source_types(request.task, workspace)
+            query = request.task[:500]
+            payload, prefetch_timing = await prefetch_workspace_evidence(
+                workspace_id,
+                query,
+                ",".join(source_types),
+            )
+            prompt = build_preloaded_agent_prompt(request, payload, source_types)
+            result = await asyncio.to_thread(
+                runner.run,
+                prompt,
+                workspace_id=workspace_id,
+                github_enabled="github" in source_types,
+                preloaded_mcp_tools=["mcp__mabc_sources__workspace_retrieve"],
+                preloaded_retrieval_timing_ms=prefetch_timing,
+            )
+            result.retrieval_timing_ms["after_retrieval"] = round(
+                result.duration_sec * 1000,
+                2,
+            )
+            result.duration_sec = round(time.perf_counter() - analysis_started, 2)
+        else:
+            prompt = build_agent_prompt(request, workspace)
+            result = await asyncio.to_thread(
+                runner.run,
+                prompt,
+                workspace_id=workspace_id,
+                github_enabled=any(
+                    source.get("source_type") == "connector"
+                    and source.get("connector") == "github"
+                    for source in workspace["sources"]
+                ),
+            )
+
+    except McpPrefetchError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=str(exc),
         )
 
     except HermesTimeoutError as exc:
