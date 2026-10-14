@@ -50,7 +50,7 @@ AI Agent에게 업무를 맡기기 전에, 사람은 GitHub의 PR, Slack 논의,
 **Situation:** 3주 만에 복귀한 백엔드 개발자가 결제 모듈의 부분환불 기능을 수정합니다.
 
 - 오래된 Notion 문서: PG API v2, 부분환불 미지원
-- 최근 GitHub PR: PG API v3 전환, \`PARTIAL_REFUND\` 추가
+- 최근 GitHub PR: PG API v3 전환, `PARTIAL_REFUND` 추가
 - Jira와 Slack: 환불 가능 기간에 서로 다른 기록
 - 해외결제 정책: 아직 미확정
 
@@ -77,7 +77,7 @@ flowchart TD
 ```
 
 **핵심 구현**
-- **Retrieval:** Source별 \`*_retrieve\`와 복수 소스 통합 \`workspace_retrieve\`; 여러 소스를 읽는 경우 병렬 Evidence Prefetch
+- **Retrieval:** Source별 `*_retrieve`와 복수 소스 통합 `workspace_retrieve`; 여러 소스를 읽는 경우 병렬 Evidence Prefetch
 - **Agent:** Hermes Runtime, Solar Pro 4, ContextPack Skill
 - **Reliability:** STALE / CONFLICT / MISSING 구분, 원본 provenance 보존
 - **Service:** FastAPI, React/Vite, Docker; Workspace별 접근 범위 제한
@@ -94,7 +94,7 @@ flowchart TD
 | **Uploaded files** | PDF / DOCX / TXT / MD / JSON 문서 검색·조회 |
 | **Jira** | 데모 fixture 전용; live Jira 연동은 미구현 |
 
-> **Branch note:** \`main\`은 GitHub Live 연동까지 반영된 안정화 코드입니다. GitHub/Slack/Notion 통합 조회와 Prefetch 기능은 **[\`feature/live-connectors\`](https://github.com/Ai-pre/mabc2026-contextpack/tree/feature/live-connectors)** 브랜치에 구현되어 있습니다. 최신 코드가 \`main\`에 모두 병합된 상태는 아닙니다.
+> **Branch note:** `main`은 GitHub Live 연동까지 반영된 안정화 코드입니다. GitHub/Slack/Notion 통합 조회와 Prefetch 기능은 **[`feature/live-connectors`](https://github.com/Ai-pre/mabc2026-contextpack/tree/feature/live-connectors)** 브랜치에 구현되어 있습니다. 최신 코드가 `main`에 모두 병합된 상태는 아닙니다.
 
 [Live MCP source implementation ↗](https://github.com/Ai-pre/mabc2026-contextpack/blob/feature/live-connectors/mabc_mcp_server.py) · [MCP scope control ↗](https://github.com/Ai-pre/mabc2026-contextpack/blob/feature/live-connectors/mabc_mcp_scoped_server.py) · [Prefetch ↗](https://github.com/Ai-pre/mabc2026-contextpack/blob/feature/live-connectors/backend/mcp_prefetch.py)
 
@@ -111,9 +111,9 @@ npm --prefix frontend run build
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-UI: \`http://127.0.0.1:8000\`
+UI: `http://127.0.0.1:8000`
 
-라이브 커넥터 테스트에는 별도 브랜치와 **서버 측 읽기 권한 토큰**(\`GITHUB_MCP_TOKEN\`, \`SLACK_BOT_TOKEN\`, \`NOTION_API_KEY\`) 및 등록된 Source가 필요합니다. 토큰은 저장소에 커밋하지 않습니다. 운영 절차는 [Workspace Guide](WORKSPACE_GUIDE.md)와 최신 브랜치의 [README](https://github.com/Ai-pre/mabc2026-contextpack/blob/feature/live-connectors/README.md)를 참고하세요.
+라이브 커넥터 테스트에는 별도 브랜치와 **서버 측 읽기 권한 토큰**(`GITHUB_MCP_TOKEN`, `SLACK_BOT_TOKEN`, `NOTION_API_KEY`) 및 등록된 Source가 필요합니다. 토큰은 저장소에 커밋하지 않습니다. 운영 절차는 [Workspace Guide](WORKSPACE_GUIDE.md)와 최신 브랜치의 [README](https://github.com/Ai-pre/mabc2026-contextpack/blob/feature/live-connectors/README.md)를 참고하세요.
 
 ## Validation & Scope
 
@@ -128,13 +128,13 @@ UI: \`http://127.0.0.1:8000\`
 
 | Path | Responsibility |
 |:--|:--|
-| [\`mabc_mcp_server.py\`](mabc_mcp_server.py) | MCP 검색·조회 도구와 GitHub live 조회 (\`main\` 기준) |
-| [\`backend/\`](backend/) | Workspace 저장·문서 파싱·FastAPI |
-| [\`deploy/hermes/\`](deploy/hermes/) | Hermes 설정과 ContextPack Skill |
-| [\`frontend/\`](frontend/) | React/Vite UI |
-| [\`tests/\`](tests/) | 격리·파싱·API·MCP 검증 |
-| [\`data/demo_project/\`](data/demo_project/) | 의도적으로 충돌하는 예제 데이터 |
-| [\`feature/live-connectors\`](https://github.com/Ai-pre/mabc2026-contextpack/tree/feature/live-connectors) | GitHub·Slack·Notion 커넥터 확장 및 통합 retrieval |
+| [`mabc_mcp_server.py`](mabc_mcp_server.py) | MCP 검색·조회 도구와 GitHub live 조회 (`main` 기준) |
+| [`backend/`](backend/) | Workspace 저장·문서 파싱·FastAPI |
+| [`deploy/hermes/`](deploy/hermes/) | Hermes 설정과 ContextPack Skill |
+| [`frontend/`](frontend/) | React/Vite UI |
+| [`tests/`](tests/) | 격리·파싱·API·MCP 검증 |
+| [`data/demo_project/`](data/demo_project/) | 의도적으로 충돌하는 예제 데이터 |
+| [`feature/live-connectors`](https://github.com/Ai-pre/mabc2026-contextpack/tree/feature/live-connectors) | GitHub·Slack·Notion 커넥터 확장 및 통합 retrieval |
 | [Original detailed README](docs/README_BEFORE_PORTFOLIO_REFRESH.md) | 이전 설계·실험·설치 설명 아카이브 |
 
 ---
